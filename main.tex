@@ -1,14 +1,25 @@
-\documentclass{article}
-\usepackage{graphicx} % Required for inserting images
+% =============================================================================
+%  Seminar — Bringing a Custom Platform into Nav2
+%
+%  Compile (locally):    latexmk -pdf main.tex
+%  Compile (Overleaf):   set "main.tex" as the main document
+% =============================================================================
+\documentclass[10pt,aspectratio=169]{beamer}
 
-\title{Mobile Robots Seminar - Slides}
+\usepackage{style}
+
+% ---------- Talk metadata -----------------------------------------------------
+\title{From \texttt{cmd\_vel} to the Wheels}
+\subtitle{Bridging the Gap between Nav2 and a Custom Mobile Platform}
 \author{Alessio Guarini}
-\date{May 2026}
+\institute{MIVIA Lab \textbf{·} University of Salerno}
+\date{Seminar — Part~I: \emph{What is missing?}}
 
+% =============================================================================
 \begin{document}
 
 \maketitle
 
-\section{Introduction}
+\input{chapters/01_gap_analysis}
 
 \end{document}

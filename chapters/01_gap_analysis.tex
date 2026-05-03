@@ -1,0 +1,438 @@
+% =============================================================================
+%  Chapter 01 — Gap analysis
+%  From the Controller Server output to the wheels.
+% =============================================================================
+
+% ---------------------------------------------------------------------------- %
+\begin{frame}{Where we are in this talk}
+  \begin{columns}[T,onlytextwidth]
+    \column{0.55\textwidth}
+      \textbf{Goal of the seminar.}\\
+      Take a custom mobile platform and let \textbf{Nav2} drive it autonomously.
+      \vspace{1.0em}
+
+      \textbf{Today, two halves:}
+      \begin{enumerate}
+        \item \alert{Part~I — Gap analysis} \hfill (this section)\\
+              \footnotesize\textcolor{black!60}{What does Nav2 actually deliver,
+              and what is still missing before a wheel can turn?}
+        \item Part~II — The ingredients\\
+              \footnotesize\textcolor{black!60}{ros2\_control, custom hardware
+              plugin, CAN contract, firmware on the MCU.}
+      \end{enumerate}
+
+    \column{0.45\textwidth}
+      \begin{tikzpicture}[node distance=4mm and 6mm]
+        \node[hl]                    (nav2)  {Nav2 stack};
+        \node[ghost, below=of nav2]  (gap)   {\textbf{?}\\\scriptsize the gap};
+        \node[ll,    below=of gap]   (mcu)   {Motors\\(MCU)};
+        \draw[arrhl] (nav2) -- (gap);
+        \draw[arrgap] (gap) -- (mcu);
+      \end{tikzpicture}
+  \end{columns}
+\end{frame}
+
+% ---------------------------------------------------------------------------- %
+\section{The Nav2 architecture, in one slide}
+
+\begin{frame}{Recap: the Navigation~2 server pipeline}
+  \centering
+  \begin{tikzpicture}[node distance=5mm and 8mm]
+    % --- servers chain
+    \node[hl]                                 (bt)   {BT\\Navigator};
+    \node[hl, right=of bt]                    (plan) {Planner\\Server};
+    \node[hl, right=of plan]                  (ctrl) {Controller\\Server};
+    \node[hl, right=of ctrl]                  (smo)  {Velocity\\Smoother};
+
+    % --- costmaps below
+    \node[hl, below=10mm of plan, fill=HLOrange!10] (gcm)  {Global\\Costmap};
+    \node[hl, below=10mm of ctrl, fill=HLOrange!10] (lcm)  {Local\\Costmap};
+
+    % --- output token
+    \node[ghost, right=of smo] (twist) {\texttt{geometry\_msgs/}\\\texttt{TwistStamped}};
+
+    % --- arrows
+    \draw[arrhl] (bt)   -- (plan);
+    \draw[arrhl] (plan) -- (ctrl);
+    \draw[arrhl] (ctrl) -- (smo);
+    \draw[arrhl] (smo)  -- (twist);
+
+    \draw[arrhl, dashed] (gcm) -- (plan);
+    \draw[arrhl, dashed] (lcm) -- (ctrl);
+
+    % --- captions
+    \node[msg, below=2mm of bt]   {goal \& recovery};
+    \node[msg, below=2mm of plan] {global path};
+    \node[msg, below=2mm of ctrl] {trajectory tracking};
+    \node[msg, below=2mm of smo]  {jerk / accel limits};
+  \end{tikzpicture}
+
+  \vspace{0.5em}
+  \begin{itemize}\setlength\itemsep{2pt}
+    \item Each block is a \textbf{lifecycle node}; their pipeline is orchestrated by a Behaviour Tree.
+    \item The \alert{output of the chain} is a single message: a \textbf{velocity command}.
+    \item Everything to the right of the Velocity Smoother is \emph{your} responsibility.
+  \end{itemize}
+\end{frame}
+
+% ---------------------------------------------------------------------------- %
+\begin{frame}{The output boundary: \texttt{cmd\_vel}}
+  \begin{columns}[T,onlytextwidth]
+    \column{0.55\textwidth}
+      The Controller Server \emph{closes the trajectory loop} on the local
+      costmap and publishes a desired body-frame velocity at every control
+      tick (typically \(20\)–\(50\)~Hz).
+
+      \vspace{0.6em}
+      The Velocity Smoother accepts that command and re-emits it after
+      enforcing \textbf{velocity, acceleration and jerk limits}.
+
+      \vspace{0.8em}
+      \textbf{What ships out of Nav2 is therefore one topic, one message
+      type, expressed in the robot's body frame:}
+
+      \vspace{0.4em}
+      \centering
+      \fbox{\parbox{0.9\linewidth}{\centering
+        \texttt{/cmd\_vel} \ (\texttt{geometry\_msgs/TwistStamped})\\
+        \scriptsize frame: \texttt{base\_link}~/~\texttt{base\_footprint}
+      }}
+
+    \column{0.45\textwidth}
+      \begin{lstlisting}[language=,basicstyle=\ttfamily\scriptsize]
+# geometry_msgs/Twist
+Vector3 linear   # vx, vy, vz   [m/s]
+Vector3 angular  # wx, wy, wz   [rad/s]
+      \end{lstlisting}
+
+      \vspace{0.6em}
+      For a \textbf{differential-drive} platform only two scalars carry
+      physical meaning:
+      \begin{itemize}
+        \item \(v_x\) — forward linear velocity \([m/s]\)
+        \item \(\omega_z\) — yaw rate \([rad/s]\)
+      \end{itemize}
+      Everything else is structurally zero.
+  \end{columns}
+\end{frame}
+
+% ---------------------------------------------------------------------------- %
+\section{The platform under inspection}
+
+\begin{frame}{The platform: a custom 4-wheel differential rover}
+  \begin{columns}[T,onlytextwidth]
+    \column{0.55\textwidth}
+      \textbf{MiviaRover, in numbers:}
+      \begin{itemize}\setlength\itemsep{2pt}
+        \item Lynxmotion Rugged Rover chassis, tank-like layout
+        \item \textbf{4 brushed DC motors}, one per wheel, up to \(160\)~RPM
+        \item Each motor commanded by a \textbf{PWM} signal
+        \item Each shaft instrumented with a \textbf{48-CPR quadrature encoder}
+        \item Custom PCB — drivers, power, sensor I/O on a single board
+        \item Brain: \textbf{STM32F767ZI} with FPU, \texttt{FreeRTOS}
+        \item Companion computer: \textbf{Jetson AGX Orin}
+      \end{itemize}
+
+      \vspace{0.4em}
+      \footnotesize\textcolor{black!60}{From the kinematic point of view it
+      behaves as a differential-drive: the two left wheels are commanded
+      together, and likewise on the right.}
+
+    \column{0.45\textwidth}
+      \centering
+      % --- replace with: \includegraphics[width=0.95\linewidth]{MiviaRoverPhotoDetailed}
+      \fbox{\parbox{0.95\linewidth}{\centering\vspace{2.2cm}
+        \scriptsize\itshape
+        \texttt{\string\includegraphics\{MiviaRoverPhotoDetailed\}}
+        \vspace{2.2cm}}}
+      \\\scriptsize MiviaRover prototype.
+  \end{columns}
+\end{frame}
+
+% ---------------------------------------------------------------------------- %
+\section{The gap}
+
+\begin{frame}{The gap, visualised}
+  \centering
+  \begin{tikzpicture}[node distance=8mm and 16mm]
+    \node[hl]                  (nav)  {Nav2\\\scriptsize Controller~+~Smoother};
+    \node[ghost, right=28mm of nav, minimum width=42mm, minimum height=22mm]
+                                (gap)  {\Huge\textbf{?}};
+    \node[ll, right=28mm of gap, minimum width=18mm]
+                                (mot)  {4 motors\\\scriptsize PWM duty cycles};
+
+    \draw[arrhl] (nav) -- node[above, msg]
+      {\(v_x\), \(\omega_z\)} node[below, msg] {\texttt{TwistStamped}} (gap);
+    \draw[arrgap] (gap) -- node[above, msg]
+      {\(d_{FL}, d_{FR}, d_{RL}, d_{RR}\)} (mot);
+
+    \node[layerlbl, above=1mm of nav] {high-level / soft real-time};
+    \node[layerlbl, above=1mm of mot] {low-level / hard real-time};
+    \node[font=\scriptsize\bfseries\itshape, text=Accent, below=1mm of gap]
+      {what do we have to build?};
+  \end{tikzpicture}
+
+  \vspace{1.2em}
+  \begin{itemize}\setlength\itemsep{2pt}
+    \item \textbf{Left side:} an \emph{abstract} body-frame velocity, sampled at
+          tens of Hz, on a ROS topic.
+    \item \textbf{Right side:} four \emph{concrete} duty cycles that have to be
+          regulated at \emph{hundreds} of Hz on bare metal.
+    \item In between: \textbf{kinematics, control, transport, feedback,
+          diagnostics, safety}.
+  \end{itemize}
+\end{frame}
+
+% ---------------------------------------------------------------------------- %
+\begin{frame}{Decomposing the gap}
+  Five distinct functions sit between \texttt{cmd\_vel} and the H-bridge:
+
+  \vspace{0.4em}
+  \begin{enumerate}\setlength\itemsep{3pt}
+    \item \textbf{Inverse kinematics.}\;
+          Map \((v_x,\omega_z)\) to per-wheel angular references
+          \(\omega^{\text{ref}}_{i}\) using wheel separation \(L\) and
+          radius \(R\):
+          \[
+            \omega^{\text{ref}}_{L} = \tfrac{1}{R}\!\left(v_x-\tfrac{L}{2}\,\omega_z\right),\quad
+            \omega^{\text{ref}}_{R} = \tfrac{1}{R}\!\left(v_x+\tfrac{L}{2}\,\omega_z\right)
+          \]
+    \item \textbf{Wheel-level closed-loop control.}\;
+          Track \(\omega^{\text{ref}}_{i}\) with a per-motor regulator
+          (e.g.\ PID + anti-windup) generating PWM.
+    \item \textbf{Forward kinematics \& odometry.}\;
+          Reconstruct \((v_x,\omega_z)\) — and integrate to a pose — from
+          encoder feedback, publishing \texttt{nav\_msgs/Odometry} and
+          the \texttt{odom}\(\to\)\texttt{base\_link} transform.
+    \item \textbf{Transport \& contract.}\;
+          Carry references \emph{down} and feedback \emph{up} across the
+          companion-computer / MCU boundary on a deterministic bus.
+    \item \textbf{Lifecycle \& fail-safe.}\;
+          Bring-up order, watchdogs, zero-on-timeout, e-stop.
+  \end{enumerate}
+\end{frame}
+
+% ---------------------------------------------------------------------------- %
+\section{ros2\_control to the rescue}
+
+\begin{frame}{ros2\_control in one slide}
+  \begin{columns}[T,onlytextwidth]
+    \column{0.50\textwidth}
+      \textbf{Three building blocks.}
+      \begin{description}\setlength\itemsep{3pt}
+        \item[\texttt{controller\_manager}] a real-time-friendly host that
+              \emph{ticks} controllers and hardware at a fixed rate.
+        \item[Controllers] consume \emph{state interfaces}, produce
+              \emph{command interfaces} (e.g.\ \texttt{diff\_drive\_controller},
+              \texttt{joint\_state\_broadcaster}).
+        \item[Hardware components] expose those interfaces by talking to the
+              real device (\texttt{SystemInterface}, \texttt{ActuatorInterface},
+              \texttt{SensorInterface}).
+      \end{description}
+
+      \vspace{0.4em}
+      \textbf{Why it matters.}\;
+      It \emph{factorises} the gap into the part that depends only on
+      \emph{kinematics} (controller, reusable across robots) and the part
+      that depends on \emph{your hardware} (the SystemInterface, written
+      once for your board).
+
+    \column{0.50\textwidth}
+      \centering
+      \begin{tikzpicture}[node distance=4mm and 6mm]
+        \node[hl, minimum width=36mm] (cm) {\texttt{controller\_manager}\\\scriptsize fixed-rate update};
+        \node[hl, below left=8mm and -8mm of cm, minimum width=22mm] (dc)
+              {\texttt{diff\_drive}\\\texttt{controller}};
+        \node[hl, below right=8mm and -10mm of cm, minimum width=22mm] (jsb)
+              {\texttt{joint\_state}\\\texttt{broadcaster}};
+        \node[ll, below=18mm of cm, minimum width=42mm] (sys)
+              {\textbf{SystemInterface}\\\scriptsize (your custom plugin)};
+        \node[ll, below=4mm of sys, minimum width=42mm] (hw)
+              {hardware (motors, encoders)};
+
+        \draw[arrhl] (cm.south) -- (dc.north);
+        \draw[arrhl] (cm.south) -- (jsb.north);
+        \draw[arrll, <->] (dc.south) -- ($(sys.north)+(-12mm,0)$);
+        \draw[arrll, <->] (jsb.south) -- ($(sys.north)+(12mm,0)$);
+        \draw[arrll, <->] (sys) -- (hw);
+
+        \node[msg, right=1mm of dc.east, anchor=west] {cmd~\(\omega\)};
+        \node[msg, left=1mm of jsb.west, anchor=east] {state};
+      \end{tikzpicture}
+  \end{columns}
+\end{frame}
+
+% ---------------------------------------------------------------------------- %
+\begin{frame}{Where ros2\_control plugs into the gap}
+  \centering
+  \begin{tikzpicture}[node distance=6mm and 10mm]
+    \node[hl]                          (nav)  {Nav2 \\ \scriptsize Controller~+~Smoother};
+    \node[hl, right=of nav]            (dd)   {\texttt{diff\_drive}\\\texttt{controller}};
+    \node[hl, right=of dd]             (sys)  {custom\\\textbf{SystemInterface}};
+    \node[bus, right=of sys]           (bus)  {CAN bus};
+    \node[ll, right=of bus]            (fw)   {STM32 firmware\\\scriptsize PID per wheel};
+    \node[ll, right=of fw, minimum width=14mm] (mot){4 motors};
+
+    \draw[arrhl] (nav) -- node[above,msg]{\(v_x,\omega_z\)} (dd);
+    \draw[arrhl] (dd)  -- node[above,msg]{\(\omega^{\text{ref}}_i\)} (sys);
+    \draw[arrhl] (sys) -- node[above,msg]{\texttt{Reference}} (bus);
+    \draw[arrll] (bus) -- node[above,msg]{CAN frame} (fw);
+    \draw[arrll] (fw)  -- node[above,msg]{PWM} (mot);
+
+    % --- feedback path
+    \draw[arrll, dashed] (mot.south) -- ++(0,-6mm) -| (fw.south);
+    \draw[arrll, dashed] (fw.south) ++(0,-6mm) -- ++(-15mm,0)
+      node[midway, below, msg]{encoder counts};
+    \draw[arrhl, dashed] (bus.south)|- ($(sys.south)+(0,-6mm)$)
+      node[midway, below, msg]{\texttt{EncoderRpms}} -- (sys.south);
+    \draw[arrhl, dashed] (sys.south) ++(0,-12mm) -| (dd.south);
+
+    \node[layerlbl, above=1mm of nav]{high-level (Jetson, ROS, soft RT)};
+    \node[layerlbl, above=1mm of fw] {low-level (STM32, FreeRTOS, hard RT)};
+  \end{tikzpicture}
+
+  \vspace{0.6em}
+  \begin{itemize}\setlength\itemsep{2pt}
+    \item \texttt{diff\_drive\_controller} solves the inverse \emph{and} the forward kinematics.
+    \item Our \texttt{MiviaRoverSystem} is the \alert{only piece we have to write on the ROS side}.
+    \item Everything to the right of the bus is the firmware's job.
+  \end{itemize}
+\end{frame}
+
+% ---------------------------------------------------------------------------- %
+\section{High-level vs.\ low-level: where to draw the line}
+
+\begin{frame}{Two worlds, one contract}
+  \centering
+  \begin{tikzpicture}[node distance=6mm and 10mm]
+    % --- high-level box
+    \node[hl, minimum width=58mm, minimum height=26mm] (hlbox) {};
+    \node[layerlbl, above=0pt of hlbox] {High-level — Jetson, ROS~2, soft real-time};
+    \node[font=\scriptsize, anchor=north west, align=left] at ([xshift=2mm,yshift=-2mm]hlbox.north west){
+      \textbullet\ Nav2: planning, BT, costmaps\\
+      \textbullet\ \texttt{diff\_drive\_controller}: kinematics + odometry\\
+      \textbullet\ Custom \texttt{SystemInterface}: ROS \(\leftrightarrow\) CAN\\
+      \textbullet\ Localisation, perception, mapping\\
+      \textbullet\ Best-effort scheduling, garbage-friendly stack
+    };
+
+    % --- low-level box
+    \node[ll, minimum width=58mm, minimum height=26mm, right=22mm of hlbox] (llbox) {};
+    \node[layerlbl, above=0pt of llbox] {Low-level — STM32F7, FreeRTOS, hard real-time};
+    \node[font=\scriptsize, anchor=north west, align=left] at ([xshift=2mm,yshift=-2mm]llbox.north west){
+      \textbullet\ Encoder acquisition (timer in QEI mode)\\
+      \textbullet\ Per-wheel PID at \(200\)~Hz, anti-windup\\
+      \textbullet\ PWM generation, H-bridge driving\\
+      \textbullet\ CAN ISR + service task\\
+      \textbullet\ Watchdogs, fail-stop, no dynamic memory
+    };
+
+    % --- the contract bus
+    \node[bus, minimum width=20mm, minimum height=18mm,
+          right=1mm of hlbox.east, anchor=west, xshift=1mm] (bus)
+      {CAN\\\scriptsize \texttt{1\,Mbit/s}\\\scriptsize \textbf{DBC}};
+
+    \draw[arr, <->, line width=0.7pt] (hlbox.east) -- (bus.west);
+    \draw[arr, <->, line width=0.7pt] (bus.east)   -- (llbox.west);
+  \end{tikzpicture}
+
+  \vspace{0.6em}
+  \footnotesize
+  The two layers are decoupled by an \textbf{explicit, versionable communication
+  contract} (the \texttt{.dbc} file) — software and firmware can evolve
+  independently as long as the contract is preserved.
+\end{frame}
+
+% ---------------------------------------------------------------------------- %
+\begin{frame}{Why split here, and not somewhere else?}
+  \begin{columns}[T,onlytextwidth]
+    \column{0.50\textwidth}
+      \textbf{Things that \emph{must} live near the silicon.}
+      \begin{itemize}\setlength\itemsep{2pt}
+        \item Tight, jitter-free timing (PWM, encoder reads).
+        \item Saturation, anti-windup, motor-side safety.
+        \item Behaviour under loss of communication.
+      \end{itemize}
+
+      \textbf{Things that \emph{want} to live in ROS.}
+      \begin{itemize}\setlength\itemsep{2pt}
+        \item Map / costmap reasoning, BT, planners.
+        \item Multi-modal sensing fusion, learning modules.
+        \item Anything that benefits from a Linux userspace.
+      \end{itemize}
+
+    \column{0.50\textwidth}
+      \textbf{Drawing the line at \emph{wheel-velocity references}:}
+      \begin{itemize}\setlength\itemsep{2pt}
+        \item \alert{High-level} delivers a setpoint \(\omega^{\text{ref}}_i\)
+              and \emph{trusts} the firmware to track it.
+        \item \alert{Low-level} reports a measurement
+              \(\omega^{\text{meas}}_i\) and \emph{trusts} the host to do the
+              kinematics.
+        \item Asymmetries between motors / encoders / chains are absorbed at
+              the wheel level — they never leak into Nav2.
+      \end{itemize}
+
+      \vspace{0.4em}
+      \footnotesize\textcolor{black!60}{This is the same boundary used in
+      most production AGV / AMR stacks: speed setpoints across the bus,
+      kinematics and odometry on the host.}
+  \end{columns}
+\end{frame}
+
+% ---------------------------------------------------------------------------- %
+\section{What we have established}
+
+\begin{frame}{Take-aways from Part~I}
+  \begin{enumerate}\setlength\itemsep{4pt}
+    \item Nav2's chain ends at the \textbf{Velocity Smoother}, whose only
+          deliverable is a single \texttt{TwistStamped} on \texttt{cmd\_vel}
+          --- two scalars for a differential-drive robot.
+    \item A custom 4-motor platform speaks an entirely different language:
+          per-wheel \textbf{PWM duty cycles} regulated in hard real-time.
+    \item The gap consists of \textbf{five concrete responsibilities}:
+          inverse kinematics, wheel-level control, odometry, transport,
+          and lifecycle/safety.
+    \item \textbf{ros2\_control} factorises that gap into a reusable
+          controller (\texttt{diff\_drive\_controller}) and a
+          hardware-specific plugin (your \texttt{SystemInterface}).
+    \item The \emph{natural place to split} ROS from firmware is the
+          \textbf{wheel-velocity reference}: kinematics on the host,
+          regulation on the MCU, an explicit \textbf{DBC contract} on the
+          bus.
+  \end{enumerate}
+\end{frame}
+
+% ---------------------------------------------------------------------------- %
+\begin{frame}{Coming next — the ingredients (Part~II)}
+  Now that we know \emph{what} is missing, we will look at \emph{how} to
+  build it on the MiviaRover:
+  \vspace{0.6em}
+
+  \begin{columns}[T,onlytextwidth]
+    \column{0.50\textwidth}
+      \textbf{ROS~2 side}
+      \begin{enumerate}\setlength\itemsep{2pt}
+        \item URDF / xacro \(+\) \texttt{<ros2\_control>} block
+        \item Controllers YAML\\
+              (\texttt{diff\_drive\_controller}, broadcaster)
+        \item Custom \texttt{MiviaRoverSystem} plugin\\
+              (lifecycle, RT-safe buffers, CAN)
+        \item Bring-up: \texttt{controller\_manager} \(+\) spawners
+      \end{enumerate}
+
+    \column{0.50\textwidth}
+      \textbf{Firmware side}
+      \begin{enumerate}\setlength\itemsep{2pt}
+        \item DBC contract \(\rightarrow\) \texttt{Reference},
+              \texttt{EncoderRpms}, \texttt{Imu*}
+        \item \texttt{ros2\_socketcan} \(+\) parser nodes
+        \item FreeRTOS task set: control \(200\)~Hz, CAN service, IMU
+        \item Per-wheel PID, fail-stop, fixed-priority schedulability
+      \end{enumerate}
+  \end{columns}
+
+  \vspace{1.0em}
+  \centering
+  \alert{\textit{End of Part~I — questions before we open the recipe?}}
+\end{frame}

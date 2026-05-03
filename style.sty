@@ -1,0 +1,60 @@
+% =============================================================================
+%  style.sty — Beamer style for the MiviaRover seminar
+% =============================================================================
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{style}[2026/05/03 v0.1 MiviaRover seminar style]
+
+% ---------- Theme & fonts -----------------------------------------------------
+\usetheme{metropolis}
+\RequirePackage{appendixnumberbeamer}
+\RequirePackage{lmodern}
+\RequirePackage[T1]{fontenc}
+\RequirePackage[utf8]{inputenc}
+
+% ---------- Packages ----------------------------------------------------------
+\RequirePackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,shapes.geometric,fit,backgrounds,calc,decorations.pathreplacing}
+\RequirePackage{listings}
+\RequirePackage{booktabs}
+\RequirePackage{xcolor}
+\RequirePackage{amsmath}
+\RequirePackage{graphicx}
+
+% ---------- Image search path -------------------------------------------------
+\graphicspath{{images/}{./images/}}
+
+% ---------- Colour palette (matches the chapter figures) ---------------------
+\definecolor{HLOrange}{HTML}{E07A1F}     % soft real-time / High-Level (ROS)
+\definecolor{LLBlue}{HTML}{2C6FA4}       % hard real-time / Low-Level (firmware)
+\definecolor{Bus}{HTML}{6B6B6B}          % CAN bus / wires
+\definecolor{Accent}{HTML}{B23B3B}       % missing pieces / "the gap"
+\definecolor{Soft}{HTML}{F2EFE9}
+
+% ---------- TikZ styles -------------------------------------------------------
+\tikzset{
+  block/.style    ={rectangle, rounded corners=2pt, draw=black!60, line width=0.4pt,
+                    align=center, inner sep=4pt, font=\footnotesize, minimum height=8mm},
+  hl/.style       ={block, fill=HLOrange!20, draw=HLOrange!70},
+  ll/.style       ={block, fill=LLBlue!20,   draw=LLBlue!70},
+  ghost/.style    ={block, fill=Accent!10,   draw=Accent!70, dashed, text=Accent!85!black},
+  bus/.style      ={block, fill=Bus!15,      draw=Bus!60},
+  arr/.style      ={-{Latex[length=2mm]}, line width=0.5pt, draw=black!70},
+  arrhl/.style    ={arr, draw=HLOrange!80},
+  arrll/.style    ={arr, draw=LLBlue!80},
+  arrgap/.style   ={arr, draw=Accent!85, line width=0.7pt, dashed},
+  msg/.style      ={font=\scriptsize\itshape, text=black!60},
+  layerlbl/.style ={font=\scriptsize\bfseries, text=black!50}
+}
+
+% ---------- Listings (tiny code excerpts) -------------------------------------
+\lstset{
+  basicstyle=\ttfamily\scriptsize,
+  keywordstyle=\color{HLOrange},
+  commentstyle=\color{black!50}\itshape,
+  stringstyle=\color{LLBlue},
+  showstringspaces=false,
+  columns=fullflexible,
+  frame=single, framerule=0.2pt, rulecolor=\color{black!30},
+  xleftmargin=4pt, xrightmargin=4pt, aboveskip=4pt, belowskip=4pt,
+  language=C++
+}
