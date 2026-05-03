@@ -6,35 +6,7 @@
 
 \begin{frame}{Recap: the Navigation~2 server pipeline}
   \centering
-  \begin{tikzpicture}[node distance=5mm and 8mm]
-    % --- servers chain
-    \node[hl]                                 (bt)   {BT\\Navigator};
-    \node[hl, right=of bt]                    (plan) {Planner\\Server};
-    \node[hl, right=of plan]                  (ctrl) {Controller\\Server};
-    \node[hl, right=of ctrl]                  (smo)  {Velocity\\Smoother};
-
-    % --- costmaps below
-    \node[hl, below=10mm of plan, fill=HLOrange!10] (gcm)  {Global\\Costmap};
-    \node[hl, below=10mm of ctrl, fill=HLOrange!10] (lcm)  {Local\\Costmap};
-
-    % --- output token
-    \node[ghost, right=of smo] (twist) {\texttt{geometry\_msgs/}\\\texttt{TwistStamped}};
-
-    % --- arrows
-    \draw[arrhl] (bt)   -- (plan);
-    \draw[arrhl] (plan) -- (ctrl);
-    \draw[arrhl] (ctrl) -- (smo);
-    \draw[arrhl] (smo)  -- (twist);
-
-    \draw[arrhl, dashed] (gcm) -- (plan);
-    \draw[arrhl, dashed] (lcm) -- (ctrl);
-
-    % --- captions
-    \node[msg, below=2mm of bt]   {goal \& recovery};
-    \node[msg, below=2mm of plan] {global path};
-    \node[msg, below=2mm of ctrl] {trajectory tracking};
-    \node[msg, below=2mm of smo]  {jerk / accel limits};
-  \end{tikzpicture}
+  \includegraphics[width=\linewidth,height=0.75\textheight,keepaspectratio]{images/02_nav2_stack.png}
 
   \vspace{0.5em}
   \begin{itemize}\setlength\itemsep{2pt}
@@ -48,38 +20,27 @@
 \begin{frame}[fragile]{The output boundary: \texttt{cmd\_vel}}
   \begin{columns}[T,onlytextwidth]
     \column{0.55\textwidth}
-      The Controller Server \emph{closes the trajectory loop} on the local
-      costmap and publishes a body-frame velocity at every tick
-      (typically \(20\)–\(50\)~Hz).
+      Nav2 outputs \textbf{one topic}, body frame, at \(\sim\)20–50~Hz:
 
-      \vspace{0.4em}
-      The Velocity Smoother re-emits it after enforcing \textbf{velocity,
-      acceleration and jerk limits}.
-
-      \vspace{0.6em}
-      \textbf{Out of Nav2: one topic, one message type, body frame:}
-
-      \vspace{0.3em}
+      \vspace{0.5em}
       \centering
-      \fbox{\parbox{0.9\linewidth}{\centering
-        \texttt{/cmd\_vel} \ (\texttt{geometry\_msgs/TwistStamped})\\
-        \scriptsize frame: \texttt{base\_link}~/~\texttt{base\_footprint}
+      \fbox{\parbox{0.88\linewidth}{\centering
+        \texttt{/cmd\_vel}\\
+        \texttt{geometry\_msgs/TwistStamped}\\
+        \scriptsize frame: \texttt{base\_link}
       }}
 
     \column{0.45\textwidth}
-      \begin{lstlisting}[language=,basicstyle=\ttfamily\scriptsize]
-# geometry_msgs/Twist
-Vector3 linear   # vx, vy, vz   [m/s]
-Vector3 angular  # wx, wy, wz   [rad/s]
+      \begin{lstlisting}[language=,basicstyle=\ttfamily\small]
+Vector3 linear   # vx vy vz
+Vector3 angular  # wx wy wz
       \end{lstlisting}
 
-      \vspace{0.6em}
-      For a \textbf{differential-drive} platform only two scalars carry
-      physical meaning:
+      \vspace{0.4em}
+      Diff-drive: only two fields matter:
       \begin{itemize}
-        \item \(v_x\) — forward linear velocity \([m/s]\)
+        \item \(v_x\) — forward speed \([m/s]\)
         \item \(\omega_z\) — yaw rate \([rad/s]\)
       \end{itemize}
-      Everything else is structurally zero.
   \end{columns}
 \end{frame}

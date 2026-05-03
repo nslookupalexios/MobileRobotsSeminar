@@ -8,7 +8,7 @@
   \centering
   \begin{tikzpicture}[node distance=8mm and 16mm]
     \node[hl]                  (nav)  {Nav2\\\scriptsize Controller~+~Smoother};
-    \node[ghost, right=28mm of nav, minimum width=42mm, minimum height=22mm]
+    \node[ghost, right=20mm of nav, minimum width=34mm, minimum height=22mm]
                                 (gap)  {\Huge\textbf{?}};
     \node[ll, right=28mm of gap, minimum width=18mm]
                                 (mot)  {4 motors\\\scriptsize PWM duty cycles};
@@ -43,14 +43,13 @@
   \begin{enumerate}\setlength\itemsep{3pt}
     \item \textbf{Inverse kinematics.}\;
           Map \((v_x,\omega_z)\) to per-wheel angular references
-          \(\omega^{\text{ref}}_{i}\) using wheel separation \(L\) and
-          radius \(R\):
+          \(d_i\) using wheel radius \(r\) and track width \(b\):
           \[
-            \omega^{\text{ref}}_{L} = \tfrac{1}{R}\!\left(v_x-\tfrac{L}{2}\,\omega_z\right),\quad
-            \omega^{\text{ref}}_{R} = \tfrac{1}{R}\!\left(v_x+\tfrac{L}{2}\,\omega_z\right)
+            d_{\text{L}} = \frac{v_x-\tfrac{b}{2}\,\omega_z}{r},\quad
+            d_{\text{R}} = \frac{v_x+\tfrac{b}{2}\,\omega_z}{r}
           \]
     \item \textbf{Wheel-level closed-loop control.}\;
-          Track \(\omega^{\text{ref}}_{i}\) with a per-motor regulator
+          Track \(d_i\) with a per-motor regulator
           (e.g.\ PID + anti-windup) generating PWM.
     \item \textbf{Forward kinematics \& odometry.}\;
           Reconstruct \((v_x,\omega_z)\) — and integrate to a pose — from
@@ -71,23 +70,17 @@
   \begin{columns}[T,onlytextwidth]
     \column{0.50\textwidth}
       \textbf{Three building blocks.}
-      \begin{description}\setlength\itemsep{3pt}
-        \item[\texttt{controller\_manager}] a real-time-friendly host that
-              \emph{ticks} controllers and hardware at a fixed rate.
-        \item[Controllers] consume \emph{state interfaces}, produce
-              \emph{command interfaces} (e.g.\ \texttt{diff\_drive\_controller},
-              \texttt{joint\_state\_broadcaster}).
-        \item[Hardware components] expose those interfaces by talking to the
-              real device (\texttt{SystemInterface}, \texttt{ActuatorInterface},
-              \texttt{SensorInterface}).
+      \begin{description}\setlength\itemsep{2pt}
+        \item[\texttt{controller\_manager}] ticks controllers and hardware at a fixed rate.
+        \item[Controllers] consume \emph{state interfaces}, produce \emph{command interfaces}\\
+              (\texttt{diff\_drive\_controller}, \ldots).
+        \item[Hardware components] expose those interfaces to the real device (\texttt{SystemInterface}).
       \end{description}
 
-      \vspace{0.4em}
+      \vspace{0.3em}
       \textbf{Why it matters.}\;
-      It \emph{factorises} the gap into the part that depends only on
-      \emph{kinematics} (controller, reusable across robots) and the part
-      that depends on \emph{your hardware} (the SystemInterface, written
-      once for your board).
+      Separates \emph{kinematics} (reusable controller) from
+      \emph{hardware access} (your \texttt{SystemInterface}).
 
     \column{0.50\textwidth}
       \centering
@@ -108,7 +101,7 @@
         \draw[arrll, <->] (jsb.south) -- ($(sys.north)+(12mm,0)$);
         \draw[arrll, <->] (sys) -- (hw);
 
-        \node[msg, right=1mm of dc.east, anchor=west] {cmd~\(\omega\)};
+        \node[msg, right=1mm of dc.east, anchor=west] {cmd~\(d_i\)};
         \node[msg, left=1mm of jsb.west, anchor=east] {state};
       \end{tikzpicture}
   \end{columns}
@@ -117,32 +110,7 @@
 % ---------------------------------------------------------------------------- %
 \begin{frame}{Where ros2\_control plugs into the gap}
   \centering
-  \resizebox{0.98\textwidth}{!}{%
-  \begin{tikzpicture}[node distance=4mm and 7mm]
-    \node[hl]                          (nav)  {Nav2 \\ \scriptsize Controller~+~Smoother};
-    \node[hl, right=of nav]            (dd)   {\texttt{diff\_drive}\\\texttt{controller}};
-    \node[hl, right=of dd]             (sys)  {custom\\\textbf{SystemInterface}};
-    \node[bus, right=of sys]           (bus)  {CAN bus};
-    \node[ll, right=of bus]            (fw)   {STM32 firmware\\\scriptsize PID per wheel};
-    \node[ll, right=of fw, minimum width=14mm] (mot){4 motors};
-
-    \draw[arrhl] (nav) -- node[above,msg]{\(v_x,\omega_z\)} (dd);
-    \draw[arrhl] (dd)  -- node[above,msg]{\(\omega^{\text{ref}}_i\)} (sys);
-    \draw[arrhl] (sys) -- node[above,msg]{\texttt{Reference}} (bus);
-    \draw[arrll] (bus) -- node[above,msg]{CAN frame} (fw);
-    \draw[arrll] (fw)  -- node[above,msg]{PWM} (mot);
-
-    % --- feedback path
-    \draw[arrll, dashed] (mot.south) -- ++(0,-6mm) -| (fw.south);
-    \draw[arrll, dashed] (fw.south) ++(0,-6mm) -- ++(-15mm,0)
-      node[midway, below, msg]{encoder counts};
-    \draw[arrhl, dashed] (bus.south)|- ($(sys.south)+(0,-6mm)$)
-      node[midway, below, msg]{\texttt{EncoderRpms}} -- (sys.south);
-    \draw[arrhl, dashed] (sys.south) ++(0,-12mm) -| (dd.south);
-
-    \node[layerlbl, above=1mm of nav]{high-level (Jetson, ROS, soft RT)};
-    \node[layerlbl, above=1mm of fw] {low-level (STM32, FreeRTOS, hard RT)};
-  \end{tikzpicture}}
+  \includegraphics[width=0.98\textwidth,height=0.58\textheight,keepaspectratio]{images/03_ros2_control_plugs.png}
 
   \vspace{0.6em}
   \begin{itemize}\setlength\itemsep{2pt}
@@ -158,33 +126,40 @@
 \begin{frame}{Two worlds, one contract}
   \centering
   \resizebox{\textwidth}{!}{%
-  \begin{tikzpicture}[node distance=6mm and 10mm]
-    \node[hl, minimum width=58mm, minimum height=24mm] (hlbox) {};
-    \node[layerlbl, above=0pt of hlbox] {High-level — Jetson, ROS~2, soft real-time};
-    \node[font=\scriptsize, anchor=north west, align=left] at ([xshift=2mm,yshift=-2mm]hlbox.north west){
+  \begin{tikzpicture}
+    \node[hl, text width=55mm, minimum height=26mm, align=left,
+          inner xsep=4mm, inner ysep=3mm] (hlbox) {
+      \scriptsize
       \textbullet\ Nav2: planning, BT, costmaps\\
-      \textbullet\ \texttt{diff\_drive\_controller}: kinematics + odometry\\
-      \textbullet\ Custom \texttt{SystemInterface}: ROS \(\leftrightarrow\) CAN\\
+      \textbullet\ \texttt{diff\_drive\_controller}:\\
+      \hspace*{1.4em}kinematics + odometry\\
+      \textbullet\ Custom \texttt{SystemInterface}:\\
+      \hspace*{1.4em}ROS \(\leftrightarrow\) CAN\\
       \textbullet\ Localization, perception, mapping\\
       \textbullet\ Best-effort scheduling
     };
 
-    \node[ll, minimum width=58mm, minimum height=24mm, right=22mm of hlbox] (llbox) {};
-    \node[layerlbl, above=0pt of llbox] {Low-level — STM32F7, FreeRTOS, hard real-time};
-    \node[font=\scriptsize, anchor=north west, align=left] at ([xshift=2mm,yshift=-2mm]llbox.north west){
-      \textbullet\ Encoder acquisition (timer in QEI mode)\\
+    \node[bus, minimum width=18mm, minimum height=17mm,
+          right=7mm of hlbox] (bus)
+      {CAN\\\scriptsize \texttt{1\,Mbit/s}\\\scriptsize \textbf{DBC}};
+
+    \node[ll, text width=55mm, minimum height=26mm, align=left,
+          inner xsep=4mm, inner ysep=3mm, right=7mm of bus] (llbox) {
+      \scriptsize
+      \textbullet\ Encoder acquisition\\
       \textbullet\ Per-wheel PID at \(200\)~Hz, anti-windup\\
       \textbullet\ PWM generation, H-bridge driving\\
       \textbullet\ CAN ISR + service task\\
       \textbullet\ Watchdog, fail-stop, no \texttt{malloc}
     };
 
-    \node[bus, minimum width=20mm, minimum height=16mm,
-          right=1mm of hlbox.east, anchor=west, xshift=1mm] (bus)
-      {CAN\\\scriptsize \texttt{1\,Mbit/s}\\\scriptsize \textbf{DBC}};
+    \node[layerlbl, above=1mm of hlbox]
+      {High-level — Jetson, ROS~2, soft real-time};
+    \node[layerlbl, above=1mm of llbox]
+      {Low-level — STM32F7, FreeRTOS, hard real-time};
 
     \draw[arr, <->, line width=0.7pt] (hlbox.east) -- (bus.west);
-    \draw[arr, <->, line width=0.7pt] (bus.east)   -- (llbox.west);
+    \draw[arr, <->, line width=0.7pt] (bus.east) -- (llbox.west);
   \end{tikzpicture}}
 
   \vspace{0.4em}
@@ -215,10 +190,10 @@
     \column{0.50\textwidth}
       \textbf{Drawing the line at \emph{wheel-velocity references}:}
       \begin{itemize}\setlength\itemsep{2pt}
-        \item \alert{High-level} delivers a setpoint \(\omega^{\text{ref}}_i\)
+        \item \alert{High-level} delivers a setpoint \(d_i\)
               and \emph{trusts} the firmware to track it.
         \item \alert{Low-level} reports a measurement
-              \(\omega^{\text{meas}}_i\) and \emph{trusts} the host to do the
+              \(\hat{d}_i\) and \emph{trusts} the host to do the
               kinematics.
         \item Asymmetries between motors / encoders / chains are absorbed at
               the wheel level — they never leak into Nav2.

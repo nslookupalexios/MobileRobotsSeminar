@@ -8,29 +8,38 @@
 % ---------------------------------------------------------------------------- %
 \begin{frame}{The same chain, walked backwards}
   \centering
-  \resizebox{\textwidth}{!}{%
-  \begin{tikzpicture}[node distance=3mm and 6mm]
-    \node[ll, minimum width=18mm]                (mcu) {STM32\\\scriptsize encoder QEI};
-    \node[bus, right=of mcu, minimum width=20mm] (bus) {socketcan\\\scriptsize CAN frame};
-    \node[hl, right=of bus, minimum width=24mm]  (rpt) {\texttt{report\_parser}\\\scriptsize bytes $\to$ typed};
-    \node[hl, right=of rpt, minimum width=28mm]  (sys) {\texttt{MiviaRoverSystem}\\\scriptsize \texttt{read()} + watchdog};
-    \node[hl, right=of sys, minimum width=26mm]  (dd)  {\texttt{diff\_drive\_ctrl}\\\scriptsize FK + integration};
-    \node[hl, right=of dd, minimum width=14mm]   (odom){\texttt{/odom}};
+  \resizebox{0.96\textwidth}{!}{%
+  \begin{tikzpicture}[
+    node distance=4mm,
+    upstreamstep/.style={minimum width=28mm, minimum height=10mm, align=center},
+    backarr/.style={line width=0.65pt,
+      -{Latex[length=1.8mm,width=1.4mm]}, shorten <=0.7mm, shorten >=0.7mm}
+  ]
+    \node[ll, upstreamstep]                (mcu) {STM32\\\scriptsize encoders};
+    \node[bus, upstreamstep, right=of mcu] (bus) {socketcan\\\scriptsize CAN frame};
+    \node[hl, upstreamstep, right=of bus]  (rpt) {\texttt{report\_parser}\\\scriptsize decode};
+    \node[hl, upstreamstep, right=of rpt]  (sys) {\texttt{MiviaRoverSystem}\\\scriptsize watchdog};
+    \node[hl, upstreamstep, right=of sys]  (dd)  {\texttt{diff\_drive}\\\scriptsize FK + odom};
+    \node[hl, upstreamstep, right=of dd]   (odom){\texttt{/odom}};
 
-    \draw[arrll] (mcu) -- node[above,msg]{RPMs} (bus);
-    \draw[arrhl] (bus) -- node[above,msg]{\texttt{can\_rx}} (rpt);
-    \draw[arrhl] (rpt) -- node[above,msg]{\texttt{EncoderRpms}} (sys);
-    \draw[arrhl] (sys) -- node[above,msg]{state if.} (dd);
-    \draw[arrhl] (dd)  -- node[above,msg]{\texttt{Odometry}} (odom);
+    \draw[arrll, backarr] (mcu.north) -- ++(0,4mm)
+      -- node[above,msg]{RPMs} ($(bus.north)+(0,4mm)$) -- (bus.north);
+    \draw[arrhl, backarr] (bus.south) -- ++(0,-4mm)
+      -- node[below,msg]{\texttt{can\_rx}} ($(rpt.south)+(0,-4mm)$) -- (rpt.south);
+    \draw[arrhl, backarr] (rpt.north) -- ++(0,4mm)
+      -- node[above,msg]{\texttt{EncoderRpms}} ($(sys.north)+(0,4mm)$) -- (sys.north);
+    \draw[arrhl, backarr] (sys.south) -- ++(0,-4mm)
+      -- node[below,msg]{state if.} ($(dd.south)+(0,-4mm)$) -- (dd.south);
+    \draw[arrhl, backarr] (dd.north) -- ++(0,4mm)
+      -- node[above,msg]{\texttt{Odometry}} ($(odom.north)+(0,4mm)$) -- (odom.north);
   \end{tikzpicture}}
 
   \vspace{0.6em}
-  \begin{itemize}\setlength\itemsep{2pt}
-    \item Same \emph{rings} as Atto~4, traversed in the opposite direction.
-    \item The interesting bits live at the boundaries: \emph{decoding}, the
-          \emph{watchdog}, and \emph{odometry integration}.
-    \item Then we step back and look at the explicit \textbf{DBC contract}
-          that makes both directions stable.
+  \begin{itemize}\setlength\itemsep{1pt}
+    \item Same rings as Atto~4, now turning encoder feedback into \texttt{/odom}.
+    \item The only places where meaning changes: \emph{decode},
+          \emph{watchdog}, \emph{odometry}.
+    \item The DBC is the byte-level contract underneath both directions.
   \end{itemize}
 \end{frame}
 
@@ -38,43 +47,36 @@
 \begin{frame}[fragile]{Ring 1 — the firmware emits RPMs}
   \begin{columns}[T,onlytextwidth]
     \column{0.55\textwidth}
-      Every \(5\)~ms the firmware:
+      Every \(5\)~ms the firmware emits one \texttt{EncoderRpms} frame.
+
+      \vspace{0.3em}
+      The loop is just:
       \begin{enumerate}\setlength\itemsep{2pt}
-        \item Samples the four hardware QEI counters (\texttt{TIM1, 2, 3, 4}).
-        \item Compensates 16-bit roll-over using the \emph{counting
-              direction} bit.
-        \item Converts ticks to RPM at the output shaft using
-              \texttt{cpr * gear\_ratio * n\_channels = 24 \(\times\) 51 \(\times\) 2 = 2448} ticks/rev.
-        \item Packs the four signed integers into the \texttt{EncoderRpms}
-              CAN frame (ID \texttt{0x0B}, \(8\)~B, scale \(1/182\) RPM).
-        \item Enqueues the frame for the CAN service task.
+        \item sample the four QEI counters,
+        \item compensate roll-over and convert ticks \(\to\) RPM,
+        \item pack four signed \(16\)-bit values and enqueue CAN.
       \end{enumerate}
 
       \vspace{0.4em}
-      \footnotesize\textcolor{black!60}{Sampling and packing are
-      \emph{deterministic} — the only piece in the whole pipeline whose
-      latency has a hard upper bound.}
+      \footnotesize
+      \textbf{Frame:} ID \texttt{0x0B}, \(8\)~B, scale \(1/182\) RPM.\\
+      \textcolor{black!60}{This is the deterministic end of the pipeline:
+      sampling, conversion, packing, done.}
 
     \column{0.45\textwidth}
       \begin{lstlisting}[language=, basicstyle=\ttfamily\scriptsize]
 # DBC excerpt (rover.dbc)
 BO_ 11 EncoderRpms: 8 Rover
-  SG_ FrontLeft  : 0|16@1- (1,0)
-                   [-180|180] "rpm"
-  SG_ RearLeft   : 16|16@1- (1,0)
-                   [-180|180] "rpm"
-  SG_ FrontRight : 32|16@1- (1,0)
-                   [-180|180] "rpm"
-  SG_ RearRight  : 48|16@1- (1,0)
-                   [-180|180] "rpm"
+  SG_ FrontLeft  :  0|16@1- (1,0) "rpm"
+  SG_ RearLeft   : 16|16@1- (1,0) "rpm"
+  SG_ FrontRight : 32|16@1- (1,0) "rpm"
+  SG_ RearRight  : 48|16@1- (1,0) "rpm"
 
-CM_ BO_ 11 "Raw encoder RPMs.
-   Physical RPM = raw * (1/182).";
+CM_ BO_ 11 "Physical RPM = raw * (1/182).";
       \end{lstlisting}
 
-      \scriptsize\textcolor{black!60}{One frame, four signed
-      \(16\)-bit fields, one comment that pins the scale. That is the entire
-      ``upstream protocol''.}
+      \scriptsize\textcolor{black!60}{One frame, four fields, one scale.
+      That is the upstream protocol.}
   \end{columns}
 \end{frame}
 
@@ -180,7 +182,7 @@ for (k=0..3) {
 % ---------------------------------------------------------------------------- %
 \begin{frame}{Ring 4 — \texttt{diff\_drive\_controller} produces \texttt{/odom}}
   \begin{columns}[T,onlytextwidth]
-    \column{0.55\textwidth}
+    \column{0.50\textwidth}
       Once the four wheel velocities are in the state interfaces, the
       \texttt{diff\_drive\_controller} closes the loop \emph{for free}:
 
@@ -218,19 +220,22 @@ for (k=0..3) {
 
 \begin{frame}{The DBC: one file, two stacks}
   \centering
-  \begin{tikzpicture}[node distance=4mm and 14mm]
-    \node[hl, minimum width=44mm, minimum height=18mm] (sw)
-      {ROS~2 stack\\\scriptsize \texttt{MiviaRoverSystem}\\
-       \scriptsize \texttt{control\_command}, \texttt{report\_parser}};
-    \node[ll, minimum width=44mm, minimum height=18mm, right=of sw] (fw)
-      {Firmware stack\\\scriptsize ISR + \texttt{can\_sender}\\
-       \scriptsize \texttt{can\_msg\_pack/unpack\_*}};
-    \node[bus, minimum width=22mm, minimum height=18mm,
-          right=1mm of sw.east, anchor=west, xshift=1mm] (dbc)
+  \begin{tikzpicture}[node distance=8mm]
+    \node[bus, text width=24mm, minimum height=18mm, align=center] (dbc)
       {\textbf{rover.dbc}\\\scriptsize 5 messages\\\scriptsize 1\,Mbit/s};
+    \node[hl, text width=45mm, minimum height=18mm, align=center, left=of dbc] (sw)
+      {ROS~2 stack\\
+      
+      \scriptsize \texttt{MiviaRoverSystem}\\
+      \scriptsize \texttt{control\_command}\\
+      \scriptsize \texttt{report\_parser}};
+    \node[ll, text width=45mm, minimum height=18mm, align=center, right=of dbc] (fw)
+      {Firmware stack\\\scriptsize ISR + \texttt{can\_manager}\\
+       \scriptsize \texttt{can\_msg\_pack}\\
+       \scriptsize \texttt{unpack\_*}};
 
-    \draw[arr,<->,line width=0.7pt] (sw.east)  -- (dbc.west);
-    \draw[arr,<->,line width=0.7pt] (dbc.east) -- (fw.west);
+    \draw[arr,<->,line width=0.7pt,shorten <=1mm,shorten >=1mm] (sw.east)  -- (dbc.west);
+    \draw[arr,<->,line width=0.7pt,shorten <=1mm,shorten >=1mm] (dbc.east) -- (fw.west);
   \end{tikzpicture}
 
   \vspace{0.4em}

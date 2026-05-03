@@ -9,7 +9,7 @@
 \begin{frame}{The validation ladder}
   \begin{columns}[T,onlytextwidth]
     \column{0.5\textwidth}
-      \textbf{Six rungs, each one isolating one ring.}
+      \textbf{Five rungs, each one isolating one ring.}
       \begin{enumerate}\setlength\itemsep{2pt}
         \item \textbf{Firmware standalone.}\\
               \footnotesize\texttt{cansend can0 0A\#…}\;forces RPM
@@ -24,9 +24,6 @@
         \item \textbf{Full SystemInterface, real hardware.}\\
               \footnotesize \texttt{ros2 control list\_controllers},\;
               \texttt{ros2 topic echo /odom}.
-        \item \textbf{Teleop $\to$ wheels turn.}\\
-              \footnotesize \texttt{teleop\_twist\_keyboard} on
-              \texttt{/cmd\_vel\_stamped}.
         \item \textbf{Nav2 goal $\to$ autonomous run.}\\
               \footnotesize End-to-end check, recordings on \texttt{rosbag2}.
       \end{enumerate}
@@ -38,10 +35,9 @@
         \node[ll, below=of a, minimum width=58mm] (b) {2. ROS CAN stack};
         \node[hl, below=of b, minimum width=58mm] (c) {3. SystemInterface (mock HW)};
         \node[hl, below=of c, minimum width=58mm] (d) {4. SystemInterface (real HW)};
-        \node[hl, below=of d, minimum width=58mm] (e) {5. teleop end-to-end};
-        \node[hl, below=of e, minimum width=58mm] (f) {6. Nav2 autonomous run};
+        \node[hl, below=of d, minimum width=58mm] (e) {5. Nav2 autonomous run};
         \draw[arrll] (a)--(b);\draw[arrhl] (b)--(c);
-        \draw[arrhl] (c)--(d);\draw[arrhl] (d)--(e);\draw[arrhl] (e)--(f);
+        \draw[arrhl] (c)--(d);\draw[arrhl] (d)--(e);
       \end{tikzpicture}
 
       \vspace{0.6em}
@@ -55,78 +51,32 @@
 \begin{frame}[fragile]{Diagnostic toolbox}
   \begin{columns}[T,onlytextwidth]
     \column{0.5\textwidth}
-      \textbf{When the bus is the suspect.}
+      \textbf{Bus.}
       \begin{itemize}\setlength\itemsep{2pt}
-        \item \texttt{candump -t a -ta can0} — wall-clock timestamps.
-        \item \texttt{cansniffer can0} — diff view of changing payloads.
-        \item Hardware: a \(2\)-channel scope on CAN-H/CAN-L for the rare
-              ``the bus is electrically dead'' case.
+        \item \texttt{candump -t a -ta can0}
+        \item \texttt{cansniffer can0}
+        \item scope CAN-H/CAN-L if nothing moves
       \end{itemize}
 
-      \textbf{When the firmware is the suspect.}
+      \vspace{0.5em}
+      \textbf{Firmware.}
       \begin{itemize}\setlength\itemsep{2pt}
-        \item GPIO toggles around tasks (we have one per task) for a free
-              logic-analyser view of jitter.
-        \item ST-Link SWV trace for non-blocking prints.
+        \item GPIO task toggles for timing
+        \item ST-Link SWV for non-blocking traces
       \end{itemize}
 
     \column{0.5\textwidth}
-      \textbf{When ROS is the suspect.}
+      \textbf{ROS.}
       \begin{itemize}\setlength\itemsep{2pt}
-        \item \texttt{ros2 control list\_controllers} — is the controller
-              \texttt{active}?
-        \item \texttt{ros2 control list\_hardware\_interfaces} — are
-              command/state interfaces actually claimed?
-        \item \texttt{ros2 topic hz /mivia\_rover/encoder\_rpms} — is the
-              \(50\)~Hz feedback alive?
-        \item \texttt{ros2 topic hz /odom} — is the controller integrating?
-        \item \texttt{rqt\_graph} — is anyone subscribed to
-              \texttt{cmd\_vel}?
+        \item \texttt{ros2 control list\_controllers}
+        \item \texttt{ros2 control list\_hardware\_interfaces}
+        \item \texttt{ros2 topic hz /mivia\_rover/encoder\_rpms}
+        \item \texttt{ros2 topic hz /odom}
+        \item \texttt{rqt\_graph}
       \end{itemize}
 
-      \vspace{0.4em}
-      \footnotesize\textcolor{black!60}{The combination of these three
-      vantage points (bus / firmware / ROS) localises any failure in
-      seconds.}
-  \end{columns}
-\end{frame}
-
-% ---------------------------------------------------------------------------- %
-\begin{frame}{What ``done'' looks like}
-  \begin{columns}[T,onlytextwidth]
-    \column{0.55\textwidth}
-      A minimal acceptance run:
-      \begin{enumerate}\setlength\itemsep{2pt}
-        \item Bring the platform up (rung~4):\\
-              \texttt{ros2 launch mivia\_rover\_platform mivia\_rover.launch.py}
-        \item Bring the CAN stack up:\\
-              \texttt{ros2 launch mivia\_rover\_can\_bringup\\\hspace{1em}mivia\_rover\_can\_bringup.launch.py}
-        \item In a third terminal, send a small forward command:\\
-              \texttt{ros2 topic pub --rate 10 /cmd\_vel\_stamped\\\hspace{1em}geometry\_msgs/msg/TwistStamped …}
-        \item Watch \texttt{/odom}:\\
-              \texttt{ros2 topic echo /odom \;|\; head}
-      \end{enumerate}
-
-      \alert{Pass} = the four wheels spin coherently, \texttt{/odom}
-      integrates the commanded \(v_x\), and \texttt{candump}'s frame rate
-      stays flat.
-
-    \column{0.45\textwidth}
-      \textbf{Failure modes we have seen.}
-      \begin{itemize}\setlength\itemsep{2pt}
-        \item \emph{Wheels turn the wrong way.}\\
-              \footnotesize Encoder direction or motor polarity inverted —
-              no firmware change required, the YAML maps it.
-        \item \emph{No \texttt{/odom}.}\\
-              \footnotesize Either no encoder feedback (rung~2) or the
-              watchdog fired (\texttt{fault\_stop\_=true}).
-        \item \emph{Periodic stutter.}\\
-              \footnotesize Almost always a queue depth issue on the host
-              side — bumping QoS or rate fixes it.
-      \end{itemize}
-
-      \vspace{0.4em}
-      \footnotesize\textcolor{black!60}{Because the chain is split into
-      named rings, each failure has a near-deterministic diagnosis.}
+      \vspace{0.6em}
+      \footnotesize\textcolor{black!60}{Three views: bytes, tasks, graph.
+      Together they localise most failures quickly.}
   \end{columns}
 \end{frame}

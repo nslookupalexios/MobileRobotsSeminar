@@ -1,6 +1,6 @@
 # Build directory
 build/
-
+*.pdf
 # LaTeX intermediates
 *.aux
 *.log

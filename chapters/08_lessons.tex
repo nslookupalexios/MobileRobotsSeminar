@@ -7,13 +7,10 @@
 % ---------------------------------------------------------------------------- %
 \begin{frame}{Recap: the whole picture in one image}
   \centering
-  \includegraphics[width=0.78\textwidth]{MiviaRoverLogicalView.png}\\[2pt]
+  \includegraphics[width=0.77\textwidth]{MiviaRoverLogicalView.png}\\[2pt]
   \footnotesize
   \emph{Same picture as the very first slide of Part~II — but now every box
-  is a thing you have seen the inside of.}\\
-  Sensing $\to$ perception $\to$ Localization $\to$ Nav2 $\to$
-  \texttt{ros2\_control} $\to$ DBC $\to$ firmware $\to$ wheels $\to$ encoders
-  $\to$ /odom $\to$ Nav2 again.
+  is a thing you have seen the inside of.}
 \end{frame}
 
 % ---------------------------------------------------------------------------- %
@@ -38,38 +35,33 @@
 % ---------------------------------------------------------------------------- %
 \begin{frame}{What's next \& hand-off}
   \begin{columns}[T,onlytextwidth]
-    \column{0.55\textwidth}
-      Two upstream blocks were \emph{assumed available} throughout this talk:
-
-      \begin{itemize}\setlength\itemsep{3pt}
-        \item \alert{Localization} — a planar EKF fusing wheel odometry,
-              ZED IMU and a UWB anchor mesh; UWB quality is mapped into a
-              dynamic covariance to handle NLOS.
-        \item \alert{Perception} — Patchwork++ ground/non-ground
-              segmentation on the ZED~2i point cloud, feeding the local
-              costmap; ZED object detection feeds higher-level modules.
-      \end{itemize}
-
-      \vspace{0.4em}
-      \alert{Hand-off.}\;
-      The \emph{UWB-based Localization} story — including the heteroscedastic
-      EKF — is the subject of \textbf{Emilio Amato's seminar, right after this one}.
-
-    \column{0.45\textwidth}
-      \textbf{Where to look in the repo.}
+    \column{0.48\textwidth}
+      \textbf{\alert{Localization}.}\\
+      A planar EKF fuses:
       \begin{itemize}\setlength\itemsep{2pt}
-        \item \texttt{src/mivia\_rover\_platform/} — SystemInterface,
-              URDF, controllers YAML, launch.
-        \item \texttt{src/mivia\_rover\_can/} — DBC-aware messages, parser
-              and command nodes, vendored \texttt{ros2\_socketcan}.
-        \item \texttt{mivia\_rover\_firmware/} — STM32CubeIDE project,
-              \texttt{rover.dbc}, FreeRTOS tasks.
-        \item \texttt{src/mivia\_rover\_bringup/} — orchestrator with
-              per-module enable flags.
+        \item wheel odometry,
+        \item ZED IMU,
+        \item UWB anchor mesh.
       \end{itemize}
+      \footnotesize\textcolor{black!60}{UWB quality becomes a dynamic
+      covariance, so NLOS does not poison the estimate.}
+
+    \column{0.48\textwidth}
+      \textbf{\alert{Perception}.}\\
+      The local costmap is fed by:
+      \begin{itemize}\setlength\itemsep{2pt}
+        \item Ground segmentation,
+        \item ZED~2i point cloud,
+        \item ZED object detections.
+      \end{itemize}
+      \footnotesize\textcolor{black!60}{These were assumed available by the
+      navigation stack we walked through.}
   \end{columns}
 
-  \vspace{0.8em}
+  \vspace{0.9em}
   \centering
+  \alert{Hand-off.}\;
+  The \emph{UWB-based Localization} introduction is Emilio Amato's seminar,
+  right after this one.\\[0.8em]
   \alert{\textit{Thank you — questions?}}
 \end{frame}

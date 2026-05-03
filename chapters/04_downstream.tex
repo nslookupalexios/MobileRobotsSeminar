@@ -15,27 +15,42 @@
       \alert{\textbf{ros2\_control $\to$ CAN $\to$ firmware}}\textcolor{black!60}{
       \,— the \emph{spine}.}
 
-    \column{0.45\textwidth}
+    \column{0.40\textwidth}
       \textbf{Five rings, walked one at a time.}
-      \begin{itemize}\setlength\itemsep{1pt}
-        \item \textbf{Ring 1.} \texttt{diff\_drive\_controller}\\
-              \scriptsize (kinematics)
-        \item \textbf{Ring 2.} URDF \texttt{<ros2\_control>}\\
-              \scriptsize (contract toward the host)
-        \item \textbf{Ring 3.} Custom \texttt{MiviaRoverSystem}\\
-              \scriptsize (lifecycle, RT buffers, comm thread)
-        \item \textbf{Ring 4.} ROS-side CAN stack\\
-              \scriptsize (\texttt{ros2\_socketcan} + parser)
-        \item \textbf{Ring 5.} Bring-up \& launch order\\
-              \scriptsize (\texttt{controller\_manager} + spawners)
-      \end{itemize}
+      \vspace{0.6em}
+
+      \begingroup
+      \setlength{\tabcolsep}{0pt}
+      \renewcommand{\arraystretch}{1.25}
+      \begin{tabular}{@{}p{10mm}@{\hspace{2mm}}p{48mm}@{}}
+        \textcolor{Accent}{\scriptsize\bfseries Ring 1} &
+          \texttt{diff\_drive\_controller}\\[-1pt]
+        & \scriptsize\textcolor{black!60}{kinematics}\\[2pt]
+
+        \textcolor{Accent}{\scriptsize\bfseries Ring 2} &
+          URDF \texttt{<ros2\_control>}\\[-1pt]
+        & \scriptsize\textcolor{black!60}{contract toward the host}\\[2pt]
+
+        \textcolor{Accent}{\scriptsize\bfseries Ring 3} &
+          Custom \texttt{MiviaRoverSystem}\\[-1pt]
+        & \scriptsize\textcolor{black!60}{lifecycle, RT buffers, comm thread}\\[2pt]
+
+        \textcolor{Accent}{\scriptsize\bfseries Ring 4} &
+          ROS-side CAN stack\\[-1pt]
+        & \scriptsize\textcolor{black!60}{\texttt{ros2\_socketcan} + parser}\\[2pt]
+
+        \textcolor{Accent}{\scriptsize\bfseries Ring 5} &
+          Bring-up \& launch order\\[-1pt]
+        & \scriptsize\textcolor{black!60}{\texttt{controller\_manager} + spawners}
+      \end{tabular}
+      \endgroup
   \end{columns}
 \end{frame}
 
 % ---------------------------------------------------------------------------- %
 \begin{frame}{ros2\_control, only what we need to know}
   \begin{columns}[T,onlytextwidth]
-    \column{0.55\textwidth}
+    \column{0.50\textwidth}
       \textbf{One process: \texttt{ros2\_control\_node}.}
       \begin{itemize}\setlength\itemsep{1pt}
         \item Runs the \texttt{controller\_manager}, which owns a
@@ -43,30 +58,37 @@
         \item Loads each \textbf{hardware component} as a plugin and
               exposes its \emph{state} and \emph{command} interfaces.
         \item A fixed-rate loop calls, on every tick:\\[1pt]
-              \centering\(\texttt{read()}\!\to\!\texttt{ctrl.update()}\!\to\!\texttt{write()}\)
+              \makebox[\linewidth][c]{%
+                \(\texttt{read()}\!\to\!\texttt{ctrl.update()}\!\to\!\texttt{write()}\)}
         \item That rate is the \textbf{system clock} of the control side.
       \end{itemize}
 
       \vspace{0.3em}
       \footnotesize\alert{We ignore the rest:} controller chains, mode
       switching, claiming policies. The four bullets above are all you
-      need to read our code.
+      need to build a minimal platform interface.
 
     \column{0.45\textwidth}
       \textbf{Lifecycle of every hardware component.}\\[1pt]
       \centering
-      \begin{tikzpicture}[node distance=1.6mm, every node/.style={font=\scriptsize}]
-        \node[hl, minimum width=22mm]                (init){\texttt{on\_init}};
-        \node[hl, below=of init, minimum width=22mm] (cfg) {\texttt{on\_configure}};
-        \node[hl, below=of cfg,  minimum width=22mm] (act) {\texttt{on\_activate}};
-        \node[hl, below=of act,  minimum width=22mm] (run) {\texttt{read()/write()}};
-        \node[hl, below=of run,  minimum width=22mm] (deact){\texttt{on\_deactivate}};
-        \node[hl, below=of deact,minimum width=22mm] (cln) {\texttt{on\_cleanup}};
-        \draw[arrhl] (init)-- (cfg);
-        \draw[arrhl] (cfg) -- (act);
-        \draw[arrhl] (act) -- (run);
-        \draw[arrhl] (run) -- (deact);
-        \draw[arrhl] (deact)-- (cln);
+      \begin{tikzpicture}[
+        node distance=3.5mm,
+        every node/.style={font=\scriptsize},
+        life/.style={hl, minimum width=28mm, minimum height=6.5mm},
+        lifearr/.style={arrhl, line width=0.65pt,
+          -{Latex[length=1.7mm,width=1.3mm]}, shorten <=0.8mm, shorten >=0.8mm}
+      ]
+        \node[life]                (init){\texttt{on\_init}};
+        \node[life, below=of init] (cfg) {\texttt{on\_configure}};
+        \node[life, below=of cfg]  (act) {\texttt{on\_activate}};
+        \node[life, below=of act]  (run) {\texttt{read()/write()}};
+        \node[life, below=of run]  (deact){\texttt{on\_deactivate}};
+        \node[life, below=of deact](cln) {\texttt{on\_cleanup}};
+        \draw[lifearr] (init.south)-- (cfg.north);
+        \draw[lifearr] (cfg.south) -- (act.north);
+        \draw[lifearr] (act.south) -- (run.north);
+        \draw[lifearr] (run.south) -- (deact.north);
+        \draw[lifearr] (deact.south)-- (cln.north);
       \end{tikzpicture}\\[2pt]
       \scriptsize\textcolor{black!60}{Resources allocated in
       \texttt{on\_configure}; \texttt{on\_init} only validates.}
@@ -76,7 +98,7 @@
 % ---------------------------------------------------------------------------- %
 \begin{frame}[fragile]{Ring 1 — \texttt{diff\_drive\_controller}}
   \begin{columns}[T,onlytextwidth]
-    \column{0.5\textwidth}
+    \column{0.45\textwidth}
       \textbf{What it consumes.} A \texttt{Twist} on \texttt{cmd\_vel}
       (remapped from Nav2's \texttt{TwistStamped}).
 
@@ -115,24 +137,33 @@ mivia_rover_base_controller:
 % ---------------------------------------------------------------------------- %
 \begin{frame}[fragile]{Ring 2 — the URDF \texttt{<ros2\_control>} block}
   \begin{columns}[T,onlytextwidth]
-    \column{0.50\textwidth}
+    \column{0.45\textwidth}
       \textbf{The contract \emph{toward} ros2\_control.}\\
-      For each wheel joint we declare:
-      \begin{itemize}\setlength\itemsep{2pt}
-        \item \textbf{Command interface:} \texttt{velocity}\\
-              \footnotesize\textcolor{black!60}{(what the controller will write)}
-        \item \textbf{State interfaces:} \texttt{position} \(+\) \texttt{velocity}\\
-              \footnotesize\textcolor{black!60}{(what the SystemInterface will fill in)}
-      \end{itemize}
+      \small Each wheel exposes one command and two state signals.
 
-      \vspace{0.4em}
-      \textbf{The \texttt{<plugin>}}, \\\texttt{mivia\_rover\_platform/MiviaRoverSystem},\\
-      tells the \texttt{ResourceManager} which class to load via
-      \texttt{pluginlib} — that is our \emph{custom hardware component}.
+      \vspace{0.5em}
+      \begingroup
+      \setlength{\tabcolsep}{0pt}
+      \renewcommand{\arraystretch}{1.2}
+      \begin{tabular}{@{}p{15mm}@{\hspace{2mm}}p{35mm}@{}}
+        \textcolor{Accent}{\scriptsize\bfseries command} &
+          \texttt{velocity}\\[-1pt]
+        & {\scriptsize\textcolor{black!60}{written by the controller}}\\[3pt]
 
-      \vspace{0.4em}
-      \footnotesize\textcolor{black!60}{Hardware parameters declared inline,
-      not in YAML — the framework only forwards them at \texttt{on\_init}.}
+        \textcolor{Accent}{\scriptsize\bfseries state} &
+          \texttt{position} \(+\) \texttt{velocity}\\[-1pt]
+        & {\scriptsize\textcolor{black!60}{filled by the SystemInterface}}
+      \end{tabular}
+      \endgroup
+
+      \vspace{0.8em}
+      \textbf{The \texttt{<plugin>} selects the class.}\\
+      \small \texttt{MiviaRoverSystem} is loaded by the
+      \texttt{ResourceManager} through \texttt{pluginlib}.
+
+      \vspace{0.5em}
+      {\scriptsize\textcolor{black!60}{Inline hardware parameters are forwarded
+      once, at \texttt{on\_init}.}}
 
     \column{0.50\textwidth}
       \begin{lstlisting}[language=XML, basicstyle=\ttfamily\scriptsize,
@@ -185,19 +216,25 @@ mivia_rover_base_controller:
 
     \column{0.50\textwidth}
       \centering
-      \begin{tikzpicture}[node distance=2mm and 4mm]
-        \node[hl, minimum width=54mm] (cm)
+      \begin{tikzpicture}[
+        node distance=7mm,
+        sysnode/.style={minimum width=54mm, minimum height=8mm},
+        sysarr/.style={line width=0.65pt,
+          {Latex[length=1.8mm,width=1.4mm]}-{Latex[length=1.8mm,width=1.4mm]},
+          shorten <=1mm, shorten >=1mm}
+      ]
+        \node[hl, sysnode] (cm)
               {\texttt{controller\_manager} (RT thread)};
-        \node[hl, below=of cm, minimum width=54mm] (sys)
+        \node[hl, sysnode, below=of cm] (sys)
               {\textbf{MiviaRoverSystem}\\\scriptsize state $\leftarrow$ \texttt{readFromRT()};\;cmd $\to$ buffer};
-        \node[bus, below=of sys, minimum width=54mm] (rtb)
+        \node[bus, sysnode, below=of sys] (rtb)
               {RT buffers + lock-free double-buffer};
-        \node[ll, below=of rtb, minimum width=54mm] (comm)
+        \node[ll, sysnode, below=of rtb] (comm)
               {Comm thread (NON-RT)\\\scriptsize ROS pub/sub at \(50\)~Hz};
 
-        \draw[arrhl,<->] (cm) -- (sys);
-        \draw[arrhl,<->] (sys) -- (rtb);
-        \draw[arrll,<->] (rtb) -- (comm);
+        \draw[arrhl, sysarr] (cm.south) -- (sys.north);
+        \draw[arrhl, sysarr] (sys.south) -- (rtb.north);
+        \draw[arrll, sysarr] (rtb.south) -- (comm.north);
       \end{tikzpicture}\\[2pt]
       \scriptsize\textcolor{black!60}{Hard real-time on top, ROS comm at
       the bottom, wait-free buffers in the middle.}
@@ -207,26 +244,26 @@ mivia_rover_base_controller:
 % ---------------------------------------------------------------------------- %
 \begin{frame}[fragile]{Ring 3.b — \texttt{write()} in detail}
   \begin{columns}[T,onlytextwidth]
-    \column{0.55\textwidth}
-      The controller has just produced four \texttt{rad/s} setpoints in
-      \texttt{hw\_commands\_}. \texttt{write()} must:
+    \column{0.50\textwidth}
+      \texttt{write()} receives four wheel setpoints in
+      \texttt{hw\_commands\_}.
+
+      \vspace{0.3em}
+      Its job is deliberately small:
       \begin{enumerate}\setlength\itemsep{2pt}
-        \item convert \(\omega\) \([\text{rad/s}]\) to RPM,
-        \item clamp to the safety envelope \texttt{rpm\_limit\_abs},
-        \item hand the result to the comm thread \emph{without taking a lock}.
+        \item convert rad/s \(\to\) RPM,
+        \item clamp to \texttt{rpm\_limit\_abs},
+        \item publish a sample for the comm thread.
       \end{enumerate}
 
-      \vspace{0.4em}
+      \vspace{0.5em}
       \textbf{Lock-free double-buffer.}\\
-      A 32-bit sequence counter selects the buffer slot
-      (\texttt{seq \& 1U}). The RT side writes into the
-      \emph{other} slot, then publishes the new \texttt{seq}
-      with \texttt{memory\_order\_release}. The comm thread reads
-      \texttt{seq}, picks the matching slot, and snapshots it by value.
+      \small RT writes the next slot and advances an atomic
+      \texttt{seq}; the comm thread snapshots the published slot by value.
 
-      \alert{Why?}\;\texttt{write()} runs in the
-      \texttt{controller\_manager} RT thread; ROS publishing runs
-      elsewhere. A mutex would couple them.
+      \vspace{0.4em}
+      \alert{No mutex:} \small the control loop must not wait for ROS
+      publishing.
 
     \column{0.45\textwidth}
       \begin{lstlisting}[language=C++, basicstyle=\ttfamily\scriptsize]
@@ -252,31 +289,32 @@ cmd_seq_.store(seq + 1, release);
 % ---------------------------------------------------------------------------- %
 \begin{frame}[fragile]{Ring 3.c — the comm thread}
   \begin{columns}[T,onlytextwidth]
-    \column{0.55\textwidth}
-      A separate \texttt{std::thread}, started in \texttt{on\_configure},
-      runs at the configured \texttt{publish\_rate\_hz} (\(50\)~Hz):
+    \column{0.50\textwidth}
+      The comm thread runs outside the RT loop, at \(50\)~Hz.
+
+      \vspace{0.3em}
+      Each tick:
       \begin{enumerate}\setlength\itemsep{2pt}
-        \item \texttt{exec\_->spin\_some()} — drains incoming
-              \texttt{EncoderRpms}.
-        \item Reads \texttt{seq} \(+\) buffer slot, snapshots the latest
-              command.
-        \item If \texttt{fault\_stop\_} is set, publishes \emph{zeros}
-              instead of the latest command.
-        \item Always publishes \emph{something} —
-              never silence on the bus.
+        \item drain incoming \texttt{EncoderRpms},
+        \item snapshot the latest command sample,
+        \item replace it with zeros on \texttt{fault\_stop\_},
+        \item publish one \texttt{Reference}.
       \end{enumerate}
 
+      \vspace{0.5em}
+      \alert{Never go silent:} \small even a stop is an explicit CAN
+      reference.
+
       \vspace{0.4em}
-      \textbf{Why a publisher and not a direct CAN call?}\;
-      We respect ROS as the bus on the host: serialisation, framing, and
-      transport stay in \texttt{ros2\_socketcan} (Ring~4).
+      \textbf{Why publish?}\\
+      \small Ring~4 owns CAN serialization and transport through
+      \texttt{ros2\_socketcan}.
 
     \column{0.45\textwidth}
       \begin{lstlisting}[language=C++, basicstyle=\ttfamily\scriptsize]
 // Pseudocode — comm thread, 50 Hz
 while (comm_running_) {
   exec_->spin_some();
-
   Reference out;
   out.header.stamp = node->now();
 
@@ -303,24 +341,7 @@ while (comm_running_) {
 % ---------------------------------------------------------------------------- %
 \begin{frame}{Ring 4 — the ROS-side CAN stack}
   \centering
-  \begin{tikzpicture}[node distance=4mm and 12mm]
-    \node[hl, minimum width=34mm]            (sys)  {\texttt{MiviaRoverSystem}\\\scriptsize publisher};
-    \node[hl, right=of sys, minimum width=34mm] (cmd){\texttt{control\_command\_node}\\\scriptsize \texttt{Reference} $\to$ \texttt{can\_msgs/Frame}};
-    \node[bus, right=of cmd, minimum width=30mm] (sock){\texttt{ros2\_socketcan}\\\scriptsize \texttt{can0}, \(1\)~Mbit/s};
-    \node[ll, right=of sock, minimum width=22mm] (mcu) {STM32};
-
-    \draw[arrhl] (sys) -- node[above,msg]{\texttt{/mivia\_rover/}\\\texttt{reference}} (cmd);
-    \draw[arrhl] (cmd) -- node[above,msg]{\texttt{output/can\_tx}} (sock);
-    \draw[arrll] (sock)-- node[above,msg]{CAN frame}(mcu);
-
-    % feedback (dashed)
-    \draw[arrll, dashed] (mcu)  to[bend left=20] node[below, msg, sloped]{CAN frame} (sock);
-    \draw[arrhl, dashed] (sock) to[bend left=20] node[below, msg, sloped]{\texttt{input/can\_rx}}
-      ($(cmd.south)+(2mm,-2mm)$);
-    \node[hl, below=12mm of cmd, minimum width=34mm] (rpt) {\texttt{report\_parser\_node}\\\scriptsize CAN $\to$ typed msgs};
-    \draw[arrhl, dashed] (sock.south) |- (rpt.east);
-    \draw[arrhl, dashed] (rpt.west)  -| ($(sys.south)+(0,-4mm)$) -- (sys.south);
-  \end{tikzpicture}
+  \includegraphics[width=1\textwidth,height=0.6\textheight,keepaspectratio]{images/04_ring4_can_stack.png}
 
   \vspace{0.4em}
   \begin{itemize}\setlength\itemsep{2pt}
@@ -328,9 +349,9 @@ while (comm_running_) {
     \item \texttt{ros2\_socketcan} = \emph{transport} only (no DBC
           knowledge).
     \item \texttt{control\_command} = \emph{down} serialiser — packs
-          \texttt{Reference} into the \(8\)-byte payload of CAN ID \texttt{0x0A}.
+          \texttt{Reference} into the \(8\)-byte packet.
     \item \texttt{report\_parser} = \emph{up} parser — switches on CAN ID and
-          emits typed msgs (covered in Atto~5).
+          emits typed msgs.
   \end{itemize}
 \end{frame}
 
@@ -339,38 +360,46 @@ while (comm_running_) {
   \begin{columns}[T,onlytextwidth]
     \column{0.50\textwidth}
       \textbf{What \texttt{mivia\_rover.launch.py} does.}
-      \begin{enumerate}\setlength\itemsep{2pt}
-        \item Renders the URDF via \texttt{xacro} (with the
-              \texttt{<ros2\_control>} block).
-        \item Starts \texttt{ros2\_control\_node} with the URDF and the
-              controllers YAML.
-        \item Starts \texttt{robot\_state\_publisher} on the same URDF.
-        \item Spawns the \texttt{joint\_state\_broadcaster}.
-        \item Spawns the \texttt{mivia\_rover\_base\_controller}
-              (\texttt{diff\_drive\_controller}).
-      \end{enumerate}
+      \begin{itemize}\setlength\itemsep{4pt}
+        \item Builds the robot description from \texttt{xacro}.
+        \item Starts \texttt{ros2\_control\_node} and
+              \texttt{robot\_state\_publisher} on that same URDF.
+        \item Spawns the state broadcaster, then the
+              \texttt{diff\_drive\_controller}.
+      \end{itemize}
 
-      \textbf{The remap that closes the loop:}
-      \begin{lstlisting}[language=, basicstyle=\ttfamily\scriptsize]
-("/mivia_rover_base_controller/cmd_vel",
- "/cmd_vel_stamped")
-      \end{lstlisting}
-      so Nav2's smoother and the controller meet on the same topic.
+      \vspace{0.6em}
+      \textbf{The one important remap.}\\
+      \small \texttt{/mivia\_rover\_base\_controller/cmd\_vel}\\
+      \(\leftarrow\) \texttt{/cmd\_vel\_stamped}
+
+      \vspace{0.4em}
+      \footnotesize\textcolor{black!60}{That is where Nav2's smoother meets
+      the base controller.}
 
     \column{0.50\textwidth}
       \centering
-      \begin{tikzpicture}[node distance=1.4mm, every node/.style={font=\scriptsize}]
-        \node[hl, minimum width=58mm, minimum height=4.2mm] (a) {\texttt{xacro} renders URDF};
-        \node[hl, below=of a, minimum width=58mm, minimum height=4.2mm] (b) {\texttt{ros2\_control\_node} loads SystemInterface};
-        \node[hl, below=of b, minimum width=58mm, minimum height=4.2mm] (c) {\texttt{robot\_state\_publisher}};
-        \node[hl, below=of c, minimum width=58mm, minimum height=4.2mm] (d) {spawn \texttt{joint\_state\_broadcaster}};
-        \node[hl, below=of d, minimum width=58mm, minimum height=4.2mm] (e) {spawn \texttt{mivia\_rover\_base\_controller}};
-        \node[bus, below=of e, minimum width=58mm, minimum height=4.2mm] (f) {\texttt{mivia\_rover\_can\_bringup}};
-        \node[ll, below=of f, minimum width=58mm, minimum height=4.2mm] (g) {STM32 firmware listening on the bus};
+      \begin{tikzpicture}[
+        node distance=4mm,
+        every node/.style={font=\scriptsize},
+        launchstep/.style={minimum width=58mm, minimum height=4.8mm},
+        launcharr/.style={line width=0.6pt,
+          -{Latex[length=1.6mm,width=1.25mm]}, shorten <=0.7mm, shorten >=0.7mm}
+      ]
+        \node[hl, launchstep] (a) {\texttt{xacro} renders URDF};
+        \node[hl, launchstep, below=of a] (b) {\texttt{ros2\_control\_node} loads SystemInterface};
+        \node[hl, launchstep, below=of b] (c) {\texttt{robot\_state\_publisher}};
+        \node[hl, launchstep, below=of c] (d) {spawn \texttt{joint\_state\_broadcaster}};
+        \node[hl, launchstep, below=of d] (e) {spawn \texttt{mivia\_rover\_base\_controller}};
+        \node[bus, launchstep, below=of e] (f) {\texttt{mivia\_rover\_can\_bringup}};
+        \node[ll, launchstep, below=of f] (g) {STM32 firmware listening on the bus};
 
-        \draw[arrhl] (a)--(b);\draw[arrhl] (b)--(c);
-        \draw[arrhl] (c)--(d);\draw[arrhl] (d)--(e);
-        \draw[arrhl] (e)--(f);\draw[arrll] (f)--(g);
+        \draw[arrhl, launcharr] (a.south)--(b.north);
+        \draw[arrhl, launcharr] (b.south)--(c.north);
+        \draw[arrhl, launcharr] (c.south)--(d.north);
+        \draw[arrhl, launcharr] (d.south)--(e.north);
+        \draw[arrhl, launcharr] (e.south)--(f.north);
+        \draw[arrll, launcharr] (f.south)--(g.north);
       \end{tikzpicture}\\[3pt]
       \scriptsize\textcolor{black!60}{In the bringup orchestrator, platform
       and CAN are toggled independently — handy during validation.}

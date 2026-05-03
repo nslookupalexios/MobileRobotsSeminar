@@ -26,13 +26,9 @@
       outdoor UGV — case study, not subject.}
 
     \column{0.45\textwidth}
-      \begin{tikzpicture}[node distance=4mm and 6mm]
-        \node[hl]                    (nav2)  {Nav2 stack};
-        \node[ghost, below=of nav2]  (gap)   {\textbf{?}\\\scriptsize the gap};
-        \node[ll,    below=of gap]   (mcu)   {Motors\\(MCU)};
-        \draw[arrhl] (nav2) -- (gap);
-        \draw[arrgap] (gap) -- (mcu);
-      \end{tikzpicture}
+      \begin{center}
+        \includegraphics[width=\linewidth,height=0.75\textheight,keepaspectratio]{images/01_the_gap.png}
+      \end{center}
   \end{columns}
 \end{frame}
 

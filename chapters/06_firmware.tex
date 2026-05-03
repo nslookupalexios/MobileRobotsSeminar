@@ -70,21 +70,34 @@
 % ---------------------------------------------------------------------------- %
 \begin{frame}{Inner loop \(@\) \(200\)~Hz}
   \centering
-  \begin{tikzpicture}[node distance=4mm and 8mm]
-    \node[ll, minimum width=28mm]            (enc){\texttt{encoder\_update\_speed} $\times$ 4\\\scriptsize ticks $\to$ RPM, sign from\\\scriptsize counting direction};
-    \node[ll, right=of enc, minimum width=28mm] (err){compute error\\\(e_i = \omega^{\text{ref}}_i - \omega^{\text{meas}}_i\)};
-    \node[ll, right=of err, minimum width=28mm] (pid){PID $\times$ 4\\\scriptsize anti-windup clamping\\\scriptsize $u\in[-12,+12]$};
-    \node[ll, right=of pid, minimum width=24mm] (pwm){\texttt{drive\_motor}\\\scriptsize $u \to$ PWM duty\\\scriptsize stop point at \(2.525\)~V};
+  \resizebox{0.90\textwidth}{!}{%
+  \begin{tikzpicture}[
+    node distance=6mm and 8mm,
+    loopbox/.style={ll, minimum width=30mm, minimum height=10mm, align=center},
+    looparr/.style={arrll, line width=0.65pt,
+      -{Latex[length=1.8mm,width=1.4mm]}, shorten <=1mm, shorten >=1mm}
+  ]
+    \node[bus, minimum width=24mm, minimum height=10mm] (ref)
+      {CAN reference\\\scriptsize \(\omega^{\text{ref}}_i\)};
+    \node[loopbox, right=of ref] (err)
+      {error\\\scriptsize \(e_i=\omega^{\text{ref}}_i-\omega^{\text{meas}}_i\)};
+    \node[loopbox, right=of err] (pid)
+      {PID \(\times 4\)\\\scriptsize anti-windup\\\scriptsize \(u\in[-12,+12]\)};
+    \node[loopbox, right=of pid] (pwm)
+      {\texttt{drive\_motor}\\\scriptsize \(u\to\) PWM duty\\\scriptsize stop at \(2.525\)~V};
 
-    \draw[arrll] (enc)--(err);
-    \draw[arrll] (err)--(pid);
-    \draw[arrll] (pid)--(pwm);
+    \node[ll, minimum width=34mm, minimum height=9mm, below=13mm of pwm] (wheel)
+      {motor + wheel\\\scriptsize physical response};
+    \node[ll, minimum width=42mm, minimum height=9mm, below=13mm of err] (enc)
+      {\texttt{encoder\_update\_speed} \(\times 4\)\\\scriptsize ticks \(\to\) RPM, signed by direction};
 
-    % feedback loop
-    \draw[arrll, dashed] (pwm.south) ++(0,-3mm) -| ($(enc.south)+(0,-3mm)$)
-      node[midway, below, msg]{the wheel actually turns\;\;\texttt{(physics)}};
-    \draw[arrll, dashed] ($(enc.south)+(0,-3mm)$) -- (enc.south);
-  \end{tikzpicture}
+    \draw[looparr] (ref.east) -- (err.west);
+    \draw[looparr] (err.east) -- (pid.west);
+    \draw[looparr] (pid.east) -- (pwm.west);
+    \draw[looparr] (pwm.south) -- node[right,msg]{PWM} (wheel.north);
+    \draw[looparr, dashed] (wheel.west) -- node[below,msg]{encoder ticks} (enc.east);
+    \draw[looparr, dashed] (enc.north) -- node[left,msg]{\(\omega^{\text{meas}}_i\)} (err.south);
+  \end{tikzpicture}}
 
   \vspace{0.6em}
   \begin{itemize}\setlength\itemsep{2pt}
@@ -134,42 +147,34 @@
 % ---------------------------------------------------------------------------- %
 \begin{frame}{Fail handling}
   \begin{columns}[T,onlytextwidth]
-    \column{0.55\textwidth}
-      \textbf{One unrecoverable error $\rightarrow$ one deterministic
-      response.}\;
-      Whether the failure is a missed encoder, a HAL error or a queue
-      overrun, \texttt{Error\_Handler} runs the same three steps:
+    \column{0.50\textwidth}
+      \textbf{One unrecoverable error $\rightarrow$ one response.}
 
       \begin{enumerate}\setlength\itemsep{2pt}
-        \item \texttt{\_\_disable\_irq()} — no more interrupts can race the
-              shutdown.
-        \item \texttt{stop\_all\_motors()} — set every PWM channel to
-              \emph{stop} and de-assert the RELE pin.
-        \item Spin in an infinite loop, leaving the watchdog (host-side or
-              external) to notice.
+        \item \texttt{\_\_disable\_irq()}
+        \item \texttt{stop\_all\_motors()} + RELE off
+        \item spin forever; watchdog notices
       \end{enumerate}
 
+      \vspace{0.6em}
+      \alert{Clamp early.}\\
+      \small The CAN ISR bounds references to \([-167,+167]\) RPM
+      \emph{before} the PID sees them.
+
       \vspace{0.4em}
-      \alert{Reference saturation belongs at the boundary.}\;
-      The CAN ISR clamps incoming RPMs into \([-167,+167]\) \emph{before}
-      they reach \texttt{rover\_pid\_control}. Bad inputs are bounded; bad
-      \emph{outputs} are bounded by the PID's own clamping.
+      \small PID output is clamped separately to keep actuation bounded too.
 
     \column{0.45\textwidth}
       \textbf{Telemetry isolation.}
       \begin{itemize}\setlength\itemsep{2pt}
-        \item \texttt{rover\_enc\_can\_tx\_step} produces a CAN frame and
-              enqueues it onto \texttt{canMsgQueue}.
-        \item \texttt{canTxTask} drains the queue and hands frames to the
-              CAN peripheral.
-        \item A slow consumer \emph{cannot} stall the actuation loop —
-              backpressure shows up as queue overflow, not as missed PIDs.
+        \item encoder task enqueues CAN frames,
+        \item \texttt{canTxTask} owns CAN transmission,
+        \item queue overflow is visible; PID timing is protected.
       \end{itemize}
 
-      \vspace{0.4em}
-      \footnotesize\textcolor{black!60}{The same idea on the host side (RT
-      double-buffer, comm thread) mirrors this firmware design — it is the
-      same pattern crossing two operating environments.}
+      \vspace{0.6em}
+      \footnotesize\textcolor{black!60}{Same pattern as the host side:
+      isolate RT control from communication backpressure.}
   \end{columns}
 \end{frame}
 
