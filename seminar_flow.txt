@@ -1,0 +1,420 @@
+================================================================================
+  RESOCONTO DEL FLOW DEL SEMINARIO
+  "From cmd_vel to the Wheels — Bringing a Custom Platform into Nav2"
+  Author: Alessio Guarini · MIVIA Lab, University of Salerno
+  Status:  design draft (pre-implementation)
+================================================================================
+
+
+--------------------------------------------------------------------------------
+1. IDENTITA' DEL SEMINARIO (assunzioni da confermare)
+--------------------------------------------------------------------------------
+
+Aspetto              | Ipotesi attuale                                       | Da decidere
+---------------------|-------------------------------------------------------|-----------------------
+Titolo di lavoro     | "From cmd_vel to the Wheels — Bringing a Custom       | sì/no
+                     |  Platform into Nav2"                                  |
+Audience             | Ricercatori/PhD in robotica con conoscenza ROS 2      | conferma livello
+                     |  di base; non assumiamo familiarità con ros2_control  |
+                     |  né con firmware embedded                             |
+Durata target        | 60 min talk + 10 min Q&A (ipotesi)                    | 45 / 60 / 90 min?
+Lingua               | Inglese                                               | confermato
+Stile                | Pedagogico-architetturale; il MiviaRover è il         | conferma
+                     |  case study, non il soggetto. Ogni concetto:          |
+                     |  principio generale -> istanza MiviaRover             |
+Demo/video           | Non assunta                                           | vuoi un video di 30-60s?
+Codice on-slide      | Sì, ma ridotto a frammenti mirati (<=10 righe)        | conferma
+Scope                | Solo "downstream" di Nav2 (Twist -> motori), oppure   | DECISIONE CRITICA
+                     |  includere anche "upstream"                           |
+                     |  (localizzazione/perception che alimentano Nav2)?     |
+
+Sulla SCOPE:
+La frase chiave del brief è "abilitarla alla guida autonoma". Tecnicamente per la
+guida autonoma servono entrambi i lati (downstream per muovere le ruote, upstream
+per dire a Nav2 dove sei e cosa vedi). Suggerimento: restare focalizzati sul
+downstream (è la novità di seminario, ha narrativa lineare) e dedicare UN SOLO
+slide di contesto all'upstream — citando EKF + UWB + ZED come "noi assumiamo
+questi disponibili". Altrimenti il seminario si raddoppia.
+
+
+--------------------------------------------------------------------------------
+2. ARCO NARRATIVO IN 6 ATTI
+--------------------------------------------------------------------------------
+
+Il talk si presta naturalmente a 6 macro-blocchi:
+
+  1. Hook & contesto         — perché il problema esiste, qual è la piattaforma
+  2. Reference architecture  — Nav2 in 1 slide, "questo è ciò che hai gratis"
+  3. Gap analysis            — cosa manca, dove tagliare       [Parte I, draftata]
+  4. The recipe — downstream — come una cmd_vel arriva alle ruote
+                               (LA SPINA DORSALE DEL TALK)
+  5. The recipe — contract & upstream — come l'MCU chiude il loop hard-RT
+  6. Bring-up, validation, lessons — come si verifica e cosa si impara
+
+Tesi di fondo del talk:
+  Il problema "porting su Nav2" si risolve scegliendo bene DOVE TAGLIARE
+  tra ROS e firmware, e poi riempiendo i tre vuoti standard
+  (kinematics, transport, regulation).
+
+
+--------------------------------------------------------------------------------
+3. DECOMPOSIZIONE DETTAGLIATA — SEZIONE PER SEZIONE
+--------------------------------------------------------------------------------
+
+================================================================================
+ATTO 0 — APERTURA               (~3 min, 2 slide)
+================================================================================
+
+  0.1 Title slide
+      - Autore, lab, "Part of MIVIA Lab outdoor autonomy work"
+
+  0.2 Why this talk
+      - Tesi: Nav2 è ben documentato a monte (planner, BT) e a valle del
+        cmd_vel esiste un buco grigio scarsamente raccontato.
+      - Promessa: "by the end of this talk you will know exactly what to
+        build and have a reference implementation to copy from"
+
+  TAKE-AWAY: il problema è reale e indirizzabile sistematicamente.
+
+
+================================================================================
+ATTO 1 — IL ROVER COME CASE STUDY        (~4 min, 2 slide)
+================================================================================
+
+  1.1 Hardware physical view
+      - Figura: MiviaRoverPhysicalView.png (HL=arancio, LL=blu, CAN nel mezzo)
+      - Numeri chiave: 4 motori brushed, 48-CPR encoder, STM32F767ZI,
+        Jetson AGX Orin, ZED 2i, UWB
+
+  1.2 Software logical view
+      - Figura: MiviaRoverLogicalView.png
+      - Sottolineare: pipeline multi-rate
+      - EVIDENZIARE IN ROSSO il sotto-percorso che il talk approfondisce
+        (ros2_control -> CAN -> firmware), GRIGIARE il resto
+
+  TAKE-AWAY: il talk si concentra su 1/4 dello stack, ma il pattern è
+             generalizzabile.
+
+
+================================================================================
+ATTO 2 — NAV2 IN 1 SLIDE         (~3 min, 2 slide)
+================================================================================
+
+  2.1 Nav2 server pipeline
+      - già nella Parte I (BT -> Planner -> Controller -> Smoother + costmaps)
+
+  2.2 The output boundary
+      - Anatomia del Twist (linear/angular)
+      - 2 scalari per diff drive (vx, wz)
+      - frame base_link
+
+  TAKE-AWAY: Nav2 finisce qui. Tutto a destra è tuo.
+
+
+================================================================================
+ATTO 3 — GAP ANALYSIS            (~10 min, ~6 slide)   [PARTE I, GIA' DRAFTATA]
+================================================================================
+
+  Frame attuali:
+    - gap visualizzato
+    - 5 funzioni mancanti
+    - ros2_control come fattorizzazione
+    - split HL/LL
+    - "two worlds, one contract"
+
+  NOTE: solo aggiustamenti minori dopo aver visto i numeri di tempistiche.
+
+
+================================================================================
+ATTO 4 — THE DOWNSTREAM PATH     (~15 min, ~10 slide)   [PARTE II.A]
+================================================================================
+
+  Spina dorsale del talk: si segue UNA cmd_vel in tutto il suo viaggio fino a
+  un transistor di un H-bridge. Ogni slide è un anello della catena.
+
+  4.1 ros2_control architecture
+      - controller_manager, ResourceManager
+      - controllers (consumano interfacce)
+      - hardware components (le espongono)
+      - Lifecycle: on_init / on_configure / on_activate
+      - La coppia read() / write() come orologio del sistema
+
+  4.2 Anello 1 — diff_drive_controller
+      - Riceve Twist, fa cinematica inversa
+      - Scrive 'velocity' su 4 command interfaces
+      - Mostrare il YAML reale (mivia_rover_controllers.yaml):
+          left_wheel_names:  [wheel_fl_joint, wheel_rl_joint]
+          right_wheel_names: [wheel_fr_joint, wheel_rr_joint]
+          wheel_separation, wheel_radius
+
+  4.3 Anello 2 — Il URDF/xacro <ros2_control> block
+      - Come si dichiara il contratto:
+          4 joints, ognuno con command_interface=velocity
+          e state_interfaces=position+velocity
+      - Mostrare mivia_rover.ros2_control.xacro (estratto)
+      - Spiegare il ruolo del <plugin>
+
+  4.4 Anello 3 — Custom SystemInterface (overview)
+      - Perché custom (no driver pre-esistente per il nostro CAN)
+      - Ciclo di vita + cosa esporta
+      - Frame con la "anatomia di una classe MiviaRoverSystem":
+          on_init, export_state_interfaces, export_command_interfaces,
+          read, write
+
+  4.5 Anello 3.b — write() in dettaglio
+      - Conversione rad/s -> RPM
+      - Clamp a rpm_limit_abs
+      - Double-buffer lock-free (cmd_seq_, cmd_buf_[2])
+      - Frammento di codice da mivia_rover_system.cpp:519-546
+      * PUNTO CHIAVE DIDATTICO *: perché serve un buffer disaccoppiato?
+        Perché write() gira nel thread RT del controller_manager mentre la
+        pubblicazione ROS gira altrove.
+
+  4.6 Anello 3.c — Il comm thread
+      - comm_thread_entry_: spin dell'executor, pubblicazione di Reference
+        a 50 Hz, comportamento sotto fault_stop_
+      - Snippet da mivia_rover_system.cpp:563-635
+
+  4.7 Anello 4 — CAN ROS-side stack
+      - I tre layer dentro mivia_rover_can:
+          ros2_socketcan       (transport)
+          control_command_node (Reference -> CanMsg)
+          report_parser_node   (CanMsg -> msgs tipati)
+      - Diagramma a tre box
+
+  4.8 Bringup & launch order
+      - mivia_rover.launch.py:
+          control_node + robot_state_publisher
+          + spawner del joint_state_broadcaster
+          + spawner del controller
+      - Il remap di cmd_vel
+      - Sequenza canonica di avvio
+
+  TAKE-AWAY ATTO 4: hai visto OGNI anello. Niente magia.
+
+
+================================================================================
+ATTO 5 — THE UPSTREAM PATH & IL CONTRATTO   (~10 min, ~6 slide)   [PARTE II.B]
+================================================================================
+
+  Adesso il viaggio inverso: encoder -> odometria, e formalizzazione del
+  contratto SW/FW.
+
+  5.1 Anello 1 — il firmware tira fuori RPM
+      - L'MCU pubblica EncoderRpms ogni 5 ms
+
+  5.2 Anello 2 — report_parser decodifica
+      - Riconosce ID CAN, mappa in mivia_rover_can_msgs/EncoderRpms
+      - Mostrare il .msg
+
+  5.3 Anello 3 — read() del SystemInterface
+      - Pull dal realtime_tools::RealtimeBuffer
+      - Watchdog su feedback_timeout
+      - Integrazione 'position'
+      - Snippet da mivia_rover_system.cpp:456-517
+      * PUNTO CHIAVE DIDATTICO *: il fail-safe (consecutive_timeouts_,
+        fault_stop_) — degradazione graduale prima dell'errore
+
+  5.4 Anello 4 — diff_drive_controller produce /odom
+      - Forward kinematics + integrazione
+      - odom -> base_link TF
+
+  5.5 The DBC contract
+      - Perché DBC (formato industriale, versionable, leggibile da humans
+        e tool come Vector CANalyzer)
+      - Tabella delle nostre 5 messaggi:
+          Reference     (down)
+          EncoderRpms   (up)
+          ImuGyroXy     (up)
+          ImuAccelXy    (up)
+          ImuZ          (up)
+      - Sottolineare: il file DBC è la SOLA superficie di accordo tra
+        repo ROS e repo firmware. Software e firmware possono evolvere
+        indipendentemente finché il DBC regge.
+
+  5.6 Why this contract pattern matters
+      - Slide riflessiva
+      - Il pattern "contract-first across the SW/FW boundary" è ricorrente in
+        automotive, AGV/AMR, drones
+      - Il talk lo presenta come BEST PRACTICE TRASFERIBILE
+
+  TAKE-AWAY ATTO 5: il loop è chiuso e il boundary HL/LL è esplicito.
+
+
+================================================================================
+ATTO 6 — FIRMWARE ON THE MCU     (~8 min, ~5 slide)   [PARTE II.C]
+================================================================================
+
+  6.1 Why an MCU at all?
+      - Separazione di concerns
+      - Jitter, safety
+      - Regulation a centinaia di Hz fuori portata di Linux user-space
+
+  6.2 Bring-up sequence (firmware)
+      - encoders -> PIDs -> PWM -> zero motors -> CAN -> queue -> relay
+      - FAIL-SAFE INVARIANT: motion abilitata solo dopo che
+        sensing+actuation+communication sono validati
+
+  6.3 Inner loop @ 200 Hz
+      - Encoder sample (HW QEI, sign dal counting direction)
+      - 4 PID independenti con anti-windup
+      - PWM update
+      - Diagramma a blocchi
+
+  6.4 Task & schedulability
+      - Set di task:
+          5 ms control
+          5 ms CAN service
+          7 ms IMU (opzionale)
+          CAN ISR
+      - Priorità rate-monotonic
+      - No malloc, no blocking
+      - Solo questo basta a fare schedulability classica
+
+  6.5 Fail handling
+      - Fail-stop deterministico:
+          disable IRQ
+          deassert relay
+          force zero
+      - Telemetria isolata dal control loop via queue
+
+  TAKE-AWAY ATTO 6: il firmware è un sistema deterministico, semplice da
+                    analizzare, deliberatamente "boring".
+
+
+================================================================================
+ATTO 7 — BRING-UP & VALIDATION   (~5 min, 3 slide)
+================================================================================
+
+  Spesso saltato nei talk accademici, ma è il salvavita per chi vuole
+  replicare.
+
+  7.1 Validation ladder — 5 step incrementali:
+      1. Firmware standalone con cansend / candump
+      2. ROS CAN stack con frame iniettati
+      3. SystemInterface con use_mock_hardware:=true
+      4. Stack completo:
+           ros2 control list_controllers
+           ros2 topic echo /odom
+      5. Teleop -> cmd_vel -> ruote girano
+      6. Nav2 con goal pose -> guida autonoma end-to-end
+
+  7.2 Diagnostic toolbox
+      - rqt_graph
+      - candump -l
+      - plotjuggler su odom/cmd_vel
+      - ros2 lifecycle list
+
+  TAKE-AWAY: la sequenza di test è metodica e ripetibile.
+
+
+================================================================================
+ATTO 8 — LESSONS & WRAP-UP       (~3 min, 2 slide)
+================================================================================
+
+  8.1 Lessons learned — 3-4 punti onesti:
+      - I bug peggiori vivono nei BOUNDARY (read RT-safe, watchdog timing
+        alla bring-up)
+      - "Contract-first" ripaga molto velocemente quando SW e FW evolvono
+        in parallelo
+      - Il diff_drive_controller upstream è sufficiente ANCHE per piattaforme
+        skid-steer 4WD purché si raggruppino le ruote a 2 a 2
+      - L'investimento in SystemInterface custom (vs. usare
+        topic_based_ros2_control) si ripaga in determinismo e RT-safety
+
+  8.2 Take-aways & pointers
+      - Repo GitHub
+      - Paper ICPR
+      - Contatto
+      - Q&A
+
+
+--------------------------------------------------------------------------------
+4. INVENTARIO ASSET
+--------------------------------------------------------------------------------
+
+Asset                                          | Stato                | Note
+-----------------------------------------------|----------------------|----------------------
+Foto rover (MiviaRoverPhotoDetailed.png)       | esiste nel chapter   | da copiare in images/
+Hardware physical view                         | esiste               | usare in atto 1.1
+  (MiviaRoverPhysicalView.png)                 |                      |
+Software logical view                          | esiste               | usare in atto 1.2 con
+  (MiviaRoverLogicalView.png)                  |                      | highlighting
+Codice mivia_rover_system.cpp                  | letto, snippet pronti| atti 4.5, 4.6, 5.3
+YAML controllori                               | letto, snippet pronto| atto 4.2
+ros2_control.xacro                             | letto, snippet pronto| atto 4.3
+Reference.msg, EncoderRpms.msg                 | letti, snippet pronti| atto 5.5
+Diagrammi TikZ Parte I                         | scritti              | riusabili
+Diagramma "downstream path" (atto 4)           | DA CREARE            | TikZ, blocchi colorati
+                                               |                      | per anello
+Diagramma "upstream path" (atto 5)             | DA CREARE            | speculare al precedente
+Diagramma firmware tasks (atto 6.4)            | DA CREARE            | timeline + priority bar
+Diagramma DBC contract (atto 5.5)              | DA CREARE            | tabella + due "scatole"
+                                               |                      | SW/FW separate
+Video demo                                     | NON ESISTENTE        | da girare se vogliamo
+                                               |                      | includerlo
+
+
+--------------------------------------------------------------------------------
+5. DECISIONI DI DESIGN DA CHIUDERE PRIMA DI SCRIVERE
+--------------------------------------------------------------------------------
+
+Sono le scelte che cambiano radicalmente il taglio del materiale. Da confermare/
+modificare una per una prima di iniziare la stesura:
+
+  1. DURATA TOTALE: 45 / 60 / 90 min?
+     (mia ipotesi: 60 + Q&A)
+
+  2. SCOPE: solo downstream, o includiamo UNO slide di contesto su
+     localizzazione/perception?
+
+  3. PROFONDITA' SUL FIRMWARE: 5 slide come proposto, o si comprime a 2
+     (high-level only) per dedicare tempo a Nav2 tuning?
+
+  4. PROFONDITA' SU ros2_control: il framework ha N concetti (lifecycle,
+     controllers, ResourceManager, hardware components, chained controllers).
+     Quanti vogliamo introdurre?
+     (mia proposta: solo i 3 strettamente necessari)
+
+  5. CODICE C++ REALE A SLIDE: vuoi snippet veri da mivia_rover_system.cpp
+     (più "atterraggio" ma più cognitive load), o pseudocodice/diagrammi
+     più asettici?
+
+  6. LIVE DEMO / VIDEO: includiamo?
+
+  7. SEZIONE "LESSONS LEARNED": la includiamo? È molto apprezzata in seminari
+     ma alcune sedi (es. paper-companion talks) preferiscono restare formali.
+
+  8. STRUTTURA DELLA PARTE II: una singola "Parte II" o tre sotto-parti
+     (II.A downstream, II.B contract, II.C firmware)?
+     (mia proposta: tre sotto-parti, ognuna in chapters/)
+
+  9. SLOT Q&A INTERNI: alla fine di ogni atto un breve "checkpoint", o
+     tutto Q&A alla fine?
+
+
+--------------------------------------------------------------------------------
+6. PROPOSTA OPERATIVA
+--------------------------------------------------------------------------------
+
+Una volta chiuse le decisioni della §5, l'organizzazione file diventa:
+
+  seminar/
+  ├── main.tex
+  ├── style.sty
+  ├── chapters/
+  │   ├── 00_opening_and_platform.tex   <- atti 0-1
+  │   ├── 01_gap_analysis.tex           <- atti 2-3 (esistente)
+  │   ├── 02_downstream_path.tex        <- atto 4
+  │   ├── 03_contract_and_upstream.tex  <- atto 5
+  │   ├── 04_firmware.tex               <- atto 6
+  │   └── 05_validation_and_wrapup.tex  <- atti 7-8
+  └── images/
+
+Stima totale: ~32-38 slide per ~60 min. Densa ma non claustrofobica, in linea
+con stile Beamer-metropolis.
+
+
+================================================================================
+END OF DOCUMENT
+================================================================================

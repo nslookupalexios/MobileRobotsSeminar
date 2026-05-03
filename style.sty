@@ -7,9 +7,12 @@
 % ---------- Theme & fonts -----------------------------------------------------
 \usetheme{metropolis}
 \RequirePackage{appendixnumberbeamer}
-\RequirePackage{lmodern}
-\RequirePackage[T1]{fontenc}
-\RequirePackage[utf8]{inputenc}
+\RequirePackage{iftex}
+\ifPDFTeX
+  \RequirePackage{lmodern}
+  \RequirePackage[T1]{fontenc}
+  \RequirePackage[utf8]{inputenc}
+\fi
 
 % ---------- Packages ----------------------------------------------------------
 \RequirePackage{tikz}
