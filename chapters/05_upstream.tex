@@ -1,0 +1,305 @@
+% =============================================================================
+%  Atto 5 — The Upstream Path & the Contract  (~10 min, ~6 slide)  [Parte II.B]
+%  The same path, walked backwards: from encoders to /odom, then DBC.
+% =============================================================================
+
+\section{Part II.B — Upstream: closing the loop}
+
+% ---------------------------------------------------------------------------- %
+\begin{frame}{The same chain, walked backwards}
+  \centering
+  \resizebox{\textwidth}{!}{%
+  \begin{tikzpicture}[node distance=3mm and 6mm]
+    \node[ll, minimum width=18mm]                (mcu) {STM32\\\scriptsize encoder QEI};
+    \node[bus, right=of mcu, minimum width=20mm] (bus) {socketcan\\\scriptsize CAN frame};
+    \node[hl, right=of bus, minimum width=24mm]  (rpt) {\texttt{report\_parser}\\\scriptsize bytes $\to$ typed};
+    \node[hl, right=of rpt, minimum width=28mm]  (sys) {\texttt{MiviaRoverSystem}\\\scriptsize \texttt{read()} + watchdog};
+    \node[hl, right=of sys, minimum width=26mm]  (dd)  {\texttt{diff\_drive\_ctrl}\\\scriptsize FK + integration};
+    \node[hl, right=of dd, minimum width=14mm]   (odom){\texttt{/odom}};
+
+    \draw[arrll] (mcu) -- node[above,msg]{RPMs} (bus);
+    \draw[arrhl] (bus) -- node[above,msg]{\texttt{can\_rx}} (rpt);
+    \draw[arrhl] (rpt) -- node[above,msg]{\texttt{EncoderRpms}} (sys);
+    \draw[arrhl] (sys) -- node[above,msg]{state if.} (dd);
+    \draw[arrhl] (dd)  -- node[above,msg]{\texttt{Odometry}} (odom);
+  \end{tikzpicture}}
+
+  \vspace{0.6em}
+  \begin{itemize}\setlength\itemsep{2pt}
+    \item Same \emph{rings} as Atto~4, traversed in the opposite direction.
+    \item The interesting bits live at the boundaries: \emph{decoding}, the
+          \emph{watchdog}, and \emph{odometry integration}.
+    \item Then we step back and look at the explicit \textbf{DBC contract}
+          that makes both directions stable.
+  \end{itemize}
+\end{frame}
+
+% ---------------------------------------------------------------------------- %
+\begin{frame}[fragile]{Ring 1 — the firmware emits RPMs}
+  \begin{columns}[T,onlytextwidth]
+    \column{0.55\textwidth}
+      Every \(5\)~ms the firmware:
+      \begin{enumerate}\setlength\itemsep{2pt}
+        \item Samples the four hardware QEI counters (\texttt{TIM1, 2, 3, 4}).
+        \item Compensates 16-bit roll-over using the \emph{counting
+              direction} bit.
+        \item Converts ticks to RPM at the output shaft using
+              \texttt{cpr * gear\_ratio * n\_channels = 24 \(\times\) 51 \(\times\) 2 = 2448} ticks/rev.
+        \item Packs the four signed integers into the \texttt{EncoderRpms}
+              CAN frame (ID \texttt{0x0B}, \(8\)~B, scale \(1/182\) RPM).
+        \item Enqueues the frame for the CAN service task.
+      \end{enumerate}
+
+      \vspace{0.4em}
+      \footnotesize\textcolor{black!60}{Sampling and packing are
+      \emph{deterministic} — the only piece in the whole pipeline whose
+      latency has a hard upper bound.}
+
+    \column{0.45\textwidth}
+      \begin{lstlisting}[language=, basicstyle=\ttfamily\scriptsize]
+# DBC excerpt (rover.dbc)
+BO_ 11 EncoderRpms: 8 Rover
+  SG_ FrontLeft  : 0|16@1- (1,0)
+                   [-180|180] "rpm"
+  SG_ RearLeft   : 16|16@1- (1,0)
+                   [-180|180] "rpm"
+  SG_ FrontRight : 32|16@1- (1,0)
+                   [-180|180] "rpm"
+  SG_ RearRight  : 48|16@1- (1,0)
+                   [-180|180] "rpm"
+
+CM_ BO_ 11 "Raw encoder RPMs.
+   Physical RPM = raw * (1/182).";
+      \end{lstlisting}
+
+      \scriptsize\textcolor{black!60}{One frame, four signed
+      \(16\)-bit fields, one comment that pins the scale. That is the entire
+      ``upstream protocol''.}
+  \end{columns}
+\end{frame}
+
+% ---------------------------------------------------------------------------- %
+\begin{frame}[fragile]{Ring 2 — \texttt{report\_parser}: from bytes to types}
+  \begin{columns}[T,onlytextwidth]
+    \column{0.50\textwidth}
+      A \texttt{rclcpp::Node} subscribes to \texttt{input/can\_rx}
+      (\texttt{can\_msgs/Frame}) and \texttt{switch}es on the CAN ID:
+
+      \begin{itemize}\setlength\itemsep{2pt}
+        \item \texttt{0x0B} $\to$ \texttt{EncoderRpms}\\
+              \footnotesize\textcolor{black!60}{decoded fields are scaled by
+              \(1/182\)}
+        \item \texttt{0x0C} $\to$ \texttt{ImuGyroXy}
+        \item \texttt{0x0D} $\to$ \texttt{ImuAccelXy}
+        \item \texttt{0x0E} $\to$ \texttt{ImuZ}
+      \end{itemize}
+
+      \textbf{Stale-data guard.}\;
+      A timer at \(50\)~Hz only re-publishes a typed message if the last
+      decoded frame is fresh (\texttt{report\_timeout\_ms}). Otherwise it
+      logs a throttled error.
+
+    \column{0.50\textwidth}
+      \begin{lstlisting}[language=C++, basicstyle=\ttfamily\scriptsize]
+// Pseudocode -- per-ID dispatch
+switch (frame.id) {
+  case EncoderRpms::ID:
+    last_rx_enc = now();
+    decode(frame.data, &enc_entity);
+    enc_msg.front_left  = enc_entity.fl  * (1.0/182.0);
+    enc_msg.rear_left   = enc_entity.rl  * (1.0/182.0);
+    enc_msg.front_right = enc_entity.fr  * (1.0/182.0);
+    enc_msg.rear_right  = enc_entity.rr  * (1.0/182.0);
+    enc_ptr = make_shared<EncoderRpms>(enc_msg);
+    break;
+
+  case ImuGyroXy::ID:   /* ... */ break;
+  case ImuAccelXy::ID:  /* ... */ break;
+  case ImuZ::ID:        /* ... */ break;
+}
+      \end{lstlisting}
+      \scriptsize\textcolor{black!60}{Decoding/scaling are mechanical: all the
+      ``intelligence'' is in the DBC. Adding a new feedback message =
+      adding a case here.}
+  \end{columns}
+\end{frame}
+
+% ---------------------------------------------------------------------------- %
+\begin{frame}[fragile]{Ring 3 — \texttt{read()}: RT pull \(+\) watchdog}
+  \begin{columns}[T,onlytextwidth]
+    \column{0.55\textwidth}
+      On every controller tick \texttt{read()} pulls the \emph{latest}
+      encoder sample from a \texttt{realtime\_tools::RealtimeBuffer}, and:
+
+      \begin{enumerate}\setlength\itemsep{2pt}
+        \item Computes \(\Delta t_{\text{age}} = t_{\text{now}} -
+              t_{\text{enc}}\).
+        \item If \(\Delta t_{\text{age}} > \) \texttt{feedback\_timeout}
+              ($\!=\!150$~ms): force \texttt{hw\_velocities\_=0} and
+              increment \texttt{consecutive\_timeouts\_}.
+        \item If \texttt{consecutive\_timeouts\_} reaches the threshold:
+              flip \texttt{fault\_stop\_} and return \texttt{ERROR}.
+        \item Otherwise: convert RPM $\to$ \texttt{rad/s}, fill
+              \texttt{hw\_velocities\_}, integrate
+              \texttt{hw\_positions\_ += w * dt}.
+      \end{enumerate}
+
+      \vspace{0.2em}
+      \alert{Why graceful degradation?}\;
+      A single late frame should not kill the run; a \emph{persistent}
+      silence should. Two thresholds, two reactions.
+
+    \column{0.45\textwidth}
+      \begin{lstlisting}[language=C++, basicstyle=\ttfamily\scriptsize]
+// Pseudocode -- read()
+const EncoderSample* enc =
+    encoder_buffer_.readFromRT();
+if (!enc || !enc->valid) return OK;
+
+age = (time - enc->stamp);
+if (age > feedback_timeout_) {
+  consecutive_timeouts_++;
+  for (k=0..3) hw_velocities_[k] = 0;
+  if (consecutive_timeouts_ >= max_to)
+    return ERROR;       // hard fault
+  fault_stop_ = true;   // soft fault
+  return OK;
+}
+
+consecutive_timeouts_ = 0;
+fault_stop_           = false;
+for (k=0..3) {
+  w = rpm_to_rad_s(enc->rpm[k]);
+  hw_velocities_[k]  = w;
+  hw_positions_[k]  += w * dt;
+}
+      \end{lstlisting}
+  \end{columns}
+\end{frame}
+
+% ---------------------------------------------------------------------------- %
+\begin{frame}{Ring 4 — \texttt{diff\_drive\_controller} produces \texttt{/odom}}
+  \begin{columns}[T,onlytextwidth]
+    \column{0.55\textwidth}
+      Once the four wheel velocities are in the state interfaces, the
+      \texttt{diff\_drive\_controller} closes the loop \emph{for free}:
+
+      \begin{itemize}\setlength\itemsep{2pt}
+        \item Aggregates the two left and two right wheels into a 2-side
+              differential model.
+        \item Applies the inverse of the kinematics it used downstream:
+              \[
+                v_x = \tfrac{R}{2}(\omega_L+\omega_R),\quad
+                \omega_z = \tfrac{R}{L}(\omega_R-\omega_L)
+              \]
+        \item Integrates \((v_x,\omega_z)\) into a planar pose; publishes
+              \texttt{nav\_msgs/Odometry} on \texttt{/odom} \(+\) the
+              \texttt{odom $\to$ base\_link} TF.
+      \end{itemize}
+
+    \column{0.45\textwidth}
+      \textbf{Frames \(+\) configuration.}
+      \begin{itemize}\setlength\itemsep{1pt}
+        \item \texttt{odom\_frame\_id: odom}
+        \item \texttt{base\_frame\_id: base\_footprint}
+        \item \texttt{enable\_odom\_tf: true}
+        \item \texttt{publish\_rate: 50.0}~Hz
+      \end{itemize}
+
+      \vspace{0.4em}
+      \footnotesize\textcolor{black!60}{This is the same \texttt{/odom} that
+      Emilio's EKF will fuse with UWB and IMU in the next seminar. From
+      our side: out comes a continuous, locally-consistent estimate.}
+  \end{columns}
+\end{frame}
+
+% ---------------------------------------------------------------------------- %
+\section{The contract: a single DBC file}
+
+\begin{frame}{The DBC: one file, two stacks}
+  \centering
+  \begin{tikzpicture}[node distance=4mm and 14mm]
+    \node[hl, minimum width=44mm, minimum height=18mm] (sw)
+      {ROS~2 stack\\\scriptsize \texttt{MiviaRoverSystem}\\
+       \scriptsize \texttt{control\_command}, \texttt{report\_parser}};
+    \node[ll, minimum width=44mm, minimum height=18mm, right=of sw] (fw)
+      {Firmware stack\\\scriptsize ISR + \texttt{can\_sender}\\
+       \scriptsize \texttt{can\_msg\_pack/unpack\_*}};
+    \node[bus, minimum width=22mm, minimum height=18mm,
+          right=1mm of sw.east, anchor=west, xshift=1mm] (dbc)
+      {\textbf{rover.dbc}\\\scriptsize 5 messages\\\scriptsize 1\,Mbit/s};
+
+    \draw[arr,<->,line width=0.7pt] (sw.east)  -- (dbc.west);
+    \draw[arr,<->,line width=0.7pt] (dbc.east) -- (fw.west);
+  \end{tikzpicture}
+
+  \vspace{0.4em}
+  {\scriptsize
+  \begin{tabular}{@{}lcll@{}}
+    \toprule
+    Message       & ID    & Direction        & Fields\\
+    \midrule
+    \texttt{Reference}    & \texttt{0x0A} & Jetson $\to$ Rover & 4$\times$ \texttt{int16} RPM\\
+    \texttt{EncoderRpms}  & \texttt{0x0B} & Rover  $\to$ Jetson& 4$\times$ \texttt{int16} RPM ($\div$182)\\
+    \texttt{ImuGyroXy}    & \texttt{0x0C} & Rover  $\to$ Jetson& 2$\times$ \texttt{int32} \([\text{rad/s}]\)\\
+    \texttt{ImuAccelXy}   & \texttt{0x0D} & Rover  $\to$ Jetson& 2$\times$ \texttt{int32} \([\text{m/s}^2]\)\\
+    \texttt{ImuZ}         & \texttt{0x0E} & Rover  $\to$ Jetson& gyro\(_z\) + accel\(_z\)\\
+    \bottomrule
+  \end{tabular}}
+
+  \vspace{0.3em}
+  \footnotesize
+  \alert{The \texttt{.dbc} is the only surface of agreement} between SW and
+  FW. Anything else evolves independently. Human-readable, git-diffable,
+  parseable by every CAN tool out there.
+\end{frame}
+
+% ---------------------------------------------------------------------------- %
+\begin{frame}{Why this pattern matters beyond MiviaRover}
+  \begin{columns}[T,onlytextwidth]
+    \column{0.55\textwidth}
+      \textbf{Contract-first across an SW/FW boundary} is a recurring
+      pattern, not a MiviaRover oddity:
+      \begin{itemize}\setlength\itemsep{2pt}
+        \item \emph{Automotive} — every modern ECU networks via DBC/AUTOSAR
+              IDLs.
+        \item \emph{AGV / AMR} — VDA~5050 over MQTT plays the same role at
+              the fleet level.
+        \item \emph{Drones} — MAVLink dialects formalise ground/vehicle
+              boundaries.
+      \end{itemize}
+
+      \vspace{0.4em}
+      \textbf{Take-away as a method.}\;
+      Define the \emph{wire format} before you write a line of code on
+      either side. Then both teams can iterate independently, and your CI
+      can lint compatibility from the file.
+
+    \column{0.45\textwidth}
+      \textbf{Concrete benefits we got out of it.}
+      \begin{itemize}\setlength\itemsep{2pt}
+        \item Re-flashing the MCU never breaks ROS code.
+        \item Re-arching the ROS side never breaks the firmware.
+        \item Simulating the bus is a one-liner
+              (\texttt{cansend can0 0A\#…}).
+        \item New telemetry = new \texttt{BO\_} block + new parser case;
+              \emph{no protocol design call}.
+      \end{itemize}
+  \end{columns}
+\end{frame}
+
+% ---------------------------------------------------------------------------- %
+\begin{frame}{Take-aways from Atto~5}
+  \begin{enumerate}\setlength\itemsep{2pt}
+    \item \textbf{The loop is closed.} Encoder ticks come back as
+          \texttt{/odom} through the same five rings, in reverse.
+    \item \textbf{The watchdog is the only fancy bit.} Two thresholds,
+          two reactions: \emph{soft} fault zeroes velocities, \emph{hard}
+          fault returns \texttt{ERROR} and engages \texttt{fault\_stop\_}.
+    \item \textbf{Forward kinematics is free.} The same controller you
+          configured downstream gives you odometry upstream — no extra
+          code.
+    \item \textbf{The DBC \emph{is} the boundary.} 5 messages, 1
+          file, 1\,Mbit/s. The rest is implementation.
+  \end{enumerate}
+\end{frame}

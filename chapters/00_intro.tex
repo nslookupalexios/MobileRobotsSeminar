@@ -1,0 +1,82 @@
+% =============================================================================
+%  Atto 0 — Apertura  (~3 min, 2 slide)
+% =============================================================================
+
+\section{Setting the stage}
+
+\begin{frame}{Where we are in this talk}
+  \begin{columns}[T,onlytextwidth]
+    \column{0.55\textwidth}
+      \textbf{Goal of the seminar.}\\
+      Take a custom mobile platform and let \textbf{Nav2} drive it autonomously.
+      \vspace{1.0em}
+
+      \textbf{Today, two halves:}
+      \begin{enumerate}
+        \item \textbf{Part~I — Gap analysis}\\
+              \footnotesize\textcolor{black!60}{What does Nav2 actually deliver,
+              and what is still missing before a wheel can turn?}
+        \item \textbf{Part~II — The recipe}\\
+              \footnotesize\textcolor{black!60}{ros2\_control, custom hardware
+              plugin, CAN contract, firmware on the MCU.}
+      \end{enumerate}
+
+      \vspace{0.4em}
+      \footnotesize\textcolor{black!60}{All on the \textbf{MiviaRover}, our
+      outdoor UGV — case study, not subject.}
+
+    \column{0.45\textwidth}
+      \begin{tikzpicture}[node distance=4mm and 6mm]
+        \node[hl]                    (nav2)  {Nav2 stack};
+        \node[ghost, below=of nav2]  (gap)   {\textbf{?}\\\scriptsize the gap};
+        \node[ll,    below=of gap]   (mcu)   {Motors\\(MCU)};
+        \draw[arrhl] (nav2) -- (gap);
+        \draw[arrgap] (gap) -- (mcu);
+      \end{tikzpicture}
+  \end{columns}
+\end{frame}
+
+% ---------------------------------------------------------------------------- %
+\begin{frame}{Why this talk}
+  \begin{columns}[T,onlytextwidth]
+    \column{0.58\textwidth}
+      \textbf{The thesis.}\;
+      Nav2 is well-documented \emph{upstream} of \texttt{cmd\_vel} —
+      planners, behaviour trees, costmaps. \emph{Downstream} of
+      \texttt{cmd\_vel} there is a \alert{grey area} that almost no tutorial
+      covers end-to-end.
+
+      \vspace{0.6em}
+      \textbf{The promise.}\;
+      By the end of this talk you will know \emph{exactly} what to build to
+      bridge that area, and have a \emph{reference implementation} to copy
+      from.
+
+      \vspace{0.6em}
+      \textbf{Pedagogical contract.}\;
+      \begin{itemize}\setlength\itemsep{2pt}
+        \item Each concept introduced as: \emph{general principle}
+              $\rightarrow$ \emph{instance on the MiviaRover}.
+        \item Pseudocode and asetic block diagrams on slides; tiny snippets
+              of real C++ only when truly indispensable.
+        \item No assumed familiarity with \texttt{ros2\_control} or
+              embedded firmware.
+      \end{itemize}
+
+    \column{0.42\textwidth}
+      \footnotesize\textcolor{black!60}{Out of scope (handled elsewhere):}
+      \begin{itemize}\setlength\itemsep{2pt}
+        \item \emph{Localisation} (EKF + UWB) — covered next by Emilio Amato.
+        \item \emph{Perception} (ZED~2i, traversability) — assumed available;
+              briefly mentioned in the closing.
+      \end{itemize}
+
+      \vspace{0.8em}
+      \footnotesize\textcolor{black!60}{Audience:}
+      \begin{itemize}\setlength\itemsep{2pt}
+        \item Students of \emph{Intelligent Robot Navigation}.
+        \item ROS~2 basics assumed.
+        \item Q\&A: at the end of the talk.
+      \end{itemize}
+  \end{columns}
+\end{frame}

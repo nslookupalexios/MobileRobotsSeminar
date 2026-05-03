@@ -1,0 +1,190 @@
+% =============================================================================
+%  Atto 6 — Firmware on the MCU  (~8 min, 5 slide)  [Parte II.C]
+%  A deliberately "boring", deterministic substrate beneath ROS.
+% =============================================================================
+
+\section{Part II.C — Firmware on the MCU}
+
+% ---------------------------------------------------------------------------- %
+\begin{frame}{Why an MCU at all?}
+  \begin{columns}[T,onlytextwidth]
+    \column{0.55\textwidth}
+      The Jetson can already run Linux \emph{and} ROS — why glue an
+      STM32F767 to the platform?
+
+      \vspace{0.4em}
+      \textbf{Three structural reasons.}
+      \begin{enumerate}\setlength\itemsep{2pt}
+        \item \alert{Determinism.}\;
+              PWM, encoder reads and PID need \emph{single-digit-microsecond}
+              jitter. Linux user space can not credibly promise that.
+        \item \alert{Separation of concerns.}\;
+              Whatever crashes on the Jetson, the wheels stop within one
+              tick of the firmware. The two layers fail independently.
+        \item \alert{Safety.}\;
+              The relay that powers the H-bridges is asserted only when the
+              firmware itself reaches a coherent state — not when ROS does.
+      \end{enumerate}
+
+    \column{0.45\textwidth}
+      \textbf{Hardware budget on the F7.}
+      \begin{itemize}\setlength\itemsep{1pt}
+        \item Cortex-M7 \(@\) \(\sim\!216\)~MHz, FPU.
+        \item 4 timers in QEI mode (one per wheel).
+        \item 1 timer with 4 PWM channels (motor driver).
+        \item 1 CAN peripheral, FIFO-based RX ISR.
+        \item I\(^2\)C for the optional MPU60X0 IMU.
+      \end{itemize}
+
+      \vspace{0.4em}
+      \footnotesize\textcolor{black!60}{The whole firmware is a few hundred
+      lines on top of HAL \(+\) FreeRTOS. The point isn't ``low-level
+      heroics''; it is \emph{boring predictability}.}
+  \end{columns}
+\end{frame}
+
+% ---------------------------------------------------------------------------- %
+\begin{frame}{Bring-up sequence (firmware side)}
+  \centering
+  \begin{tikzpicture}[node distance=1.2mm, every node/.style={font=\scriptsize}]
+    \node[ll, minimum width=66mm, minimum height=4.2mm] (a) {1.\;\;\texttt{encoder\_init} $\times$ 4 \;(QEI mode)};
+    \node[ll, below=of a, minimum width=66mm, minimum height=4.2mm] (b) {2.\;\;\texttt{pid\_init} $\times$ 4 \;(gains, $u_{\min},u_{\max}$)};
+    \node[ll, below=of b, minimum width=66mm, minimum height=4.2mm] (c) {3.\;\;\texttt{Start\_PWM\_Channels} \;(arm 4 PWM outputs)};
+    \node[ll, below=of c, minimum width=66mm, minimum height=4.2mm] (d) {4.\;\;\texttt{stop\_all\_motors} \;(zero duty, RELE off)};
+    \node[ll, below=of d, minimum width=66mm, minimum height=4.2mm] (e) {5.\;\;\texttt{canManager\_Init} \;\&\;ID whitelist};
+    \node[ll, below=of e, minimum width=66mm, minimum height=4.2mm] (f) {6.\;\;\texttt{can\_sender\_init} \;(static msg queue)};
+    \node[ll, below=of f, minimum width=66mm, minimum height=4.2mm] (g) {\textbf{7.}\;\;Assert RELE \;(power to H-bridges)};
+    \node[hl, below=of g, minimum width=66mm, minimum height=4.2mm] (h) {\textbf{Only now} \;the FreeRTOS kernel starts ticking tasks};
+    \draw[arrll] (a)--(b);\draw[arrll] (b)--(c);\draw[arrll] (c)--(d);
+    \draw[arrll] (d)--(e);\draw[arrll] (e)--(f);\draw[arrll] (f)--(g);
+    \draw[arrhl] (g)--(h);
+  \end{tikzpicture}
+
+  \vspace{0.4em}
+  \footnotesize\alert{Fail-safe invariant.}\;
+  Motion is enabled \emph{only after} sensing, actuation and communication
+  have all reached a coherent state. Any failure in steps 1--6 routes into
+  \texttt{Error\_Handler}: disable IRQ, de-assert RELE.
+\end{frame}
+
+% ---------------------------------------------------------------------------- %
+\begin{frame}{Inner loop \(@\) \(200\)~Hz}
+  \centering
+  \begin{tikzpicture}[node distance=4mm and 8mm]
+    \node[ll, minimum width=28mm]            (enc){\texttt{encoder\_update\_speed} $\times$ 4\\\scriptsize ticks $\to$ RPM, sign from\\\scriptsize counting direction};
+    \node[ll, right=of enc, minimum width=28mm] (err){compute error\\\(e_i = \omega^{\text{ref}}_i - \omega^{\text{meas}}_i\)};
+    \node[ll, right=of err, minimum width=28mm] (pid){PID $\times$ 4\\\scriptsize anti-windup clamping\\\scriptsize $u\in[-12,+12]$};
+    \node[ll, right=of pid, minimum width=24mm] (pwm){\texttt{drive\_motor}\\\scriptsize $u \to$ PWM duty\\\scriptsize stop point at \(2.525\)~V};
+
+    \draw[arrll] (enc)--(err);
+    \draw[arrll] (err)--(pid);
+    \draw[arrll] (pid)--(pwm);
+
+    % feedback loop
+    \draw[arrll, dashed] (pwm.south) ++(0,-3mm) -| ($(enc.south)+(0,-3mm)$)
+      node[midway, below, msg]{the wheel actually turns\;\;\texttt{(physics)}};
+    \draw[arrll, dashed] ($(enc.south)+(0,-3mm)$) -- (enc.south);
+  \end{tikzpicture}
+
+  \vspace{0.6em}
+  \begin{itemize}\setlength\itemsep{2pt}
+    \item Driven by FreeRTOS task \texttt{MotorControlTas} with
+          \texttt{vTaskDelayUntil(5\,ms)} — period jitter bounded by the
+          kernel tick.
+    \item Reference comes from the CAN ISR (saturated to
+          \([-167,+167]\)~RPM \emph{before} touching the regulator).
+    \item Each wheel has \emph{its own} PID — asymmetries in motors,
+          gearboxes and tyres are absorbed locally.
+    \item No \texttt{malloc}, no blocking primitive, no float printf.
+  \end{itemize}
+\end{frame}
+
+% ---------------------------------------------------------------------------- %
+\begin{frame}{Tasks \& schedulability}
+  \centering
+  \begin{tabular}{@{}llcc@{}}
+    \toprule
+    Task                   & Period & Priority           & RM-rank\\
+    \midrule
+    \texttt{canTxTask}     & \(5\)~ms & \texttt{Realtime7} & 1 (highest)\\
+    \texttt{MotorControlTas}& \(5\)~ms & \texttt{Realtime6} & 2\\
+    \texttt{MPUCanTxTask} (opt.) & \(7\)~ms & \texttt{Low}  & 3\\
+    \texttt{defaultTask}   & \(1\)~ms idle & \texttt{Normal}&  background\\
+    \midrule
+    CAN RX ISR             & event-driven & higher than any task & --- \\
+    \bottomrule
+  \end{tabular}
+
+  \vspace{0.5em}
+  \begin{itemize}\setlength\itemsep{1pt}
+    \item \textbf{Fixed-priority preemptive} on a \(1\)~kHz FreeRTOS tick.
+    \item CAN service ranked \emph{above} motor control: bounds feedback
+          queueing latency, prevents ROS-side timeouts.
+    \item IMU is lowest priority by Rate-Monotonic — its longer period
+          protects the actuation path.
+    \item No mutexes between RT tasks; the only blocking primitive is the
+          static msg queue between producers and \texttt{canTxTask}.
+  \end{itemize}
+
+  \vspace{0.3em}
+  \footnotesize\textcolor{black!60}{Small enough that Liu-\&-Layland or
+  hyperbolic-bound analysis fits on a napkin.}
+\end{frame}
+
+% ---------------------------------------------------------------------------- %
+\begin{frame}{Fail handling}
+  \begin{columns}[T,onlytextwidth]
+    \column{0.55\textwidth}
+      \textbf{One unrecoverable error $\rightarrow$ one deterministic
+      response.}\;
+      Whether the failure is a missed encoder, a HAL error or a queue
+      overrun, \texttt{Error\_Handler} runs the same three steps:
+
+      \begin{enumerate}\setlength\itemsep{2pt}
+        \item \texttt{\_\_disable\_irq()} — no more interrupts can race the
+              shutdown.
+        \item \texttt{stop\_all\_motors()} — set every PWM channel to
+              \emph{stop} and de-assert the RELE pin.
+        \item Spin in an infinite loop, leaving the watchdog (host-side or
+              external) to notice.
+      \end{enumerate}
+
+      \vspace{0.4em}
+      \alert{Reference saturation belongs at the boundary.}\;
+      The CAN ISR clamps incoming RPMs into \([-167,+167]\) \emph{before}
+      they reach \texttt{rover\_pid\_control}. Bad inputs are bounded; bad
+      \emph{outputs} are bounded by the PID's own clamping.
+
+    \column{0.45\textwidth}
+      \textbf{Telemetry isolation.}
+      \begin{itemize}\setlength\itemsep{2pt}
+        \item \texttt{rover\_enc\_can\_tx\_step} produces a CAN frame and
+              enqueues it onto \texttt{canMsgQueue}.
+        \item \texttt{canTxTask} drains the queue and hands frames to the
+              CAN peripheral.
+        \item A slow consumer \emph{cannot} stall the actuation loop —
+              backpressure shows up as queue overflow, not as missed PIDs.
+      \end{itemize}
+
+      \vspace{0.4em}
+      \footnotesize\textcolor{black!60}{The same idea on the host side (RT
+      double-buffer, comm thread) mirrors this firmware design — it is the
+      same pattern crossing two operating environments.}
+  \end{columns}
+\end{frame}
+
+% ---------------------------------------------------------------------------- %
+\begin{frame}{Take-aways from Atto~6}
+  \begin{enumerate}\setlength\itemsep{4pt}
+    \item \textbf{The firmware is intentionally boring.} A small set of
+          fixed-period tasks, no dynamic memory, no blocking — easy to
+          schedule, easy to reason about, easy to trust.
+    \item \textbf{Power follows readiness.} The motor relay only closes
+          \emph{after} sensing, control and communication are all alive.
+    \item \textbf{Ownership is local.} Per-wheel encoders + per-wheel PID
+          let the host pretend it is talking to a clean differential drive.
+    \item \textbf{Symmetry with the host.} The same RT/NON-RT separation
+          we built in the SystemInterface lives here, only the operating
+          environment changed.
+  \end{enumerate}
+\end{frame}

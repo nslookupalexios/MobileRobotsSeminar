@@ -4,16 +4,29 @@
 
 % ---------- Talk metadata -----------------------------------------------------
 \title{From \texttt{cmd\_vel} to the Wheels}
-\subtitle{Bridging the Gap between Nav2 and a Custom Mobile Platform}
+\subtitle{Bringing a Custom Platform into Nav2}
 \author{Alessio Guarini}
 \institute{MIVIA Lab \textbf{·} University of Salerno}
-\date{Seminar — Part~I: \emph{What is missing?}}
+\date{Intelligent Robot Navigation \textbf{·} Seminar}
 
 % =============================================================================
 \begin{document}
 
 \maketitle
 
-\input{chapters/01_gap_analysis}
+% --- Part I: Gap analysis ---
+\input{chapters/00_intro}
+\input{chapters/01_rover}
+\input{chapters/02_nav2}
+\input{chapters/03_gap}
+
+% --- Part II: The recipe ---
+\input{chapters/04_downstream}
+\input{chapters/05_upstream}
+\input{chapters/06_firmware}
+
+% --- Bring-up & closing ---
+\input{chapters/07_validation}
+\input{chapters/08_lessons}
 
 \end{document}
