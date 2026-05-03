@@ -68,42 +68,21 @@
 
 \begin{frame}{ros2\_control in one slide}
   \begin{columns}[T,onlytextwidth]
-    \column{0.50\textwidth}
-      \textbf{Three building blocks.}
-      \begin{description}\setlength\itemsep{2pt}
-        \item[\texttt{controller\_manager}] ticks controllers and hardware at a fixed rate.
-        \item[Controllers] consume \emph{state interfaces}, produce \emph{command interfaces}\\
-              (\texttt{diff\_drive\_controller}, \ldots).
-        \item[Hardware components] expose those interfaces to the real device (\texttt{SystemInterface}).
-      \end{description}
+    \column{0.45\textwidth}
+      \textbf{Three moving parts.}
+      \begin{itemize}\setlength\itemsep{4pt}
+        \item \texttt{controller\_manager}: fixed-rate tick.
+        \item Controllers: kinematics and odometry.
+        \item \texttt{SystemInterface}: real hardware access.
+      \end{itemize}
 
-      \vspace{0.3em}
-      \textbf{Why it matters.}\;
-      Separates \emph{kinematics} (reusable controller) from
-      \emph{hardware access} (your \texttt{SystemInterface}).
+      \vspace{0.5em}
+      \alert{Key split:}\\
+      \emph{reusable controller} vs.\ \emph{custom hardware plugin}.
 
     \column{0.50\textwidth}
       \centering
-      \begin{tikzpicture}[node distance=4mm and 6mm]
-        \node[hl, minimum width=36mm] (cm) {\texttt{controller\_manager}\\\scriptsize fixed-rate update};
-        \node[hl, below left=8mm and -8mm of cm, minimum width=22mm] (dc)
-              {\texttt{diff\_drive}\\\texttt{controller}};
-        \node[hl, below right=8mm and -10mm of cm, minimum width=22mm] (jsb)
-              {\texttt{joint\_state}\\\texttt{broadcaster}};
-        \node[ll, below=18mm of cm, minimum width=42mm] (sys)
-              {\textbf{SystemInterface}\\\scriptsize (your custom plugin)};
-        \node[ll, below=4mm of sys, minimum width=42mm] (hw)
-              {hardware (motors, encoders)};
-
-        \draw[arrhl] (cm.south) -- (dc.north);
-        \draw[arrhl] (cm.south) -- (jsb.north);
-        \draw[arrll, <->] (dc.south) -- ($(sys.north)+(-12mm,0)$);
-        \draw[arrll, <->] (jsb.south) -- ($(sys.north)+(12mm,0)$);
-        \draw[arrll, <->] (sys) -- (hw);
-
-        \node[msg, right=1mm of dc.east, anchor=west] {cmd~\(d_i\)};
-        \node[msg, left=1mm of jsb.west, anchor=east] {state};
-      \end{tikzpicture}
+      \includegraphics[width=\linewidth,height=0.62\textheight,keepaspectratio]{images/03_ros2_control_in_one_slide.png}
   \end{columns}
 \end{frame}
 
