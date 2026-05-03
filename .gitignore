@@ -1,0 +1,51 @@
+# Build directory
+build/
+
+# LaTeX intermediates
+*.aux
+*.log
+*.out
+*.toc
+*.lof
+*.lot
+*.bbl
+*.blg
+*.idx
+*.ind
+*.ilg
+*.glo
+*.gls
+*.glg
+*.acn
+*.acr
+*.alg
+*.ist
+
+# Beamer
+*.nav
+*.snm
+*.vrb
+
+# latexmk
+*.fls
+*.fdb_latexmk
+
+# SyncTeX
+*.synctex.gz
+*.synctex(busy)
+
+# biber/biblatex
+*.run.xml
+*-blx.bib
+*.bcf
+
+# Editors
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

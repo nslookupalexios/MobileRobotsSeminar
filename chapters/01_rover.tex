@@ -8,32 +8,35 @@
   \begin{columns}[T,onlytextwidth]
     \column{0.46\textwidth}
       \textbf{Custom outdoor UGV} built on a Lynxmotion \emph{Rugged~Rover}
-      chassis, configured as a \textbf{tank-like differential drive}.
+      chassis, configured as a \textbf{differential drive}.
 
-      \vspace{0.6em}
-      \textbf{Numbers that matter for this talk}
-      \begin{itemize}\setlength\itemsep{2pt}
+      \vspace{0.5em}
+      {\small\begin{itemize}\setlength\itemsep{2pt}
         \item \textbf{4 brushed DC motors}, one per wheel
               (up to \(\sim\!160\)~RPM)
-        \item \textbf{48-CPR quadrature encoder} on each shaft\\
-              \footnotesize\textcolor{black!60}{(24-CPR $\times$ 2 channels;
-              gear ratio 51:1)}
-        \item \textbf{Custom PCB} — H-bridges, power, sensor I/O
-        \item \textbf{Low-level} brain: \textbf{STM32F767ZI} + FPU,
-              FreeRTOS
+        \item \textbf{48-CPR quadrature encoder} on each shaft
+        \item \textbf{Custom PCB} — H-bridge driver interface, power
+              distribution, sensor I/O, CAN transceiver
+        \item \textbf{Low-level} brain: \textbf{STM32F767ZI} MCU
         \item \textbf{High-level} brain: \textbf{Jetson AGX Orin}
         \item Exteroception: \textbf{ZED~2i}; absolute fix:
               \textbf{Qorvo MDEK1001 UWB}
-      \end{itemize}
-
-      \vspace{0.4em}
-      \footnotesize\textcolor{black!60}{Two halves talking over a
-      \textbf{CAN} bus. The split is the whole story of this talk.}
+      \end{itemize}}
 
     \column{0.54\textwidth}
-      \centering
-      \includegraphics[width=0.98\linewidth]{MiviaRoverPhysicalView.png}\\
-      \scriptsize \emph{Hard-real-time hardware in blue, soft-real-time in
-      orange, CAN bus in between. External sensors over USB.}
+      \begin{minipage}[c][0.75\textheight][c]{\linewidth}
+        \centering
+        \includegraphics[width=0.98\linewidth]{MiviaRoverPhysicalView.png}\\[0.4em]
+        \scriptsize \emph{Hard-real-time in blue, soft-real-time in
+        orange, CAN bus in between. External sensors over USB.}
+      \end{minipage}
   \end{columns}
+\end{frame}
+
+\begin{frame}{The MiviaRover — physical layout}
+  \begin{center}
+    \includegraphics[width=0.88\linewidth]{MiviaRoverPhysicalView.png}\\[0.5em]
+    \scriptsize \emph{Hard-real-time hardware in blue, soft-real-time in
+    orange, CAN bus in between. External sensors over USB.}
+  \end{center}
 \end{frame}
