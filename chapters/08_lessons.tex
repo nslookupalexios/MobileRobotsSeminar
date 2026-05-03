@@ -11,7 +11,7 @@
   \footnotesize
   \emph{Same picture as the very first slide of Part~II — but now every box
   is a thing you have seen the inside of.}\\
-  Sensing $\to$ perception $\to$ localisation $\to$ Nav2 $\to$
+  Sensing $\to$ perception $\to$ Localization $\to$ Nav2 $\to$
   \texttt{ros2\_control} $\to$ DBC $\to$ firmware $\to$ wheels $\to$ encoders
   $\to$ /odom $\to$ Nav2 again.
 \end{frame}
@@ -42,7 +42,7 @@
       Two upstream blocks were \emph{assumed available} throughout this talk:
 
       \begin{itemize}\setlength\itemsep{3pt}
-        \item \alert{Localisation} — a planar EKF fusing wheel odometry,
+        \item \alert{Localization} — a planar EKF fusing wheel odometry,
               ZED IMU and a UWB anchor mesh; UWB quality is mapped into a
               dynamic covariance to handle NLOS.
         \item \alert{Perception} — Patchwork++ ground/non-ground
@@ -52,7 +52,7 @@
 
       \vspace{0.4em}
       \alert{Hand-off.}\;
-      The \emph{UWB-based localisation} story — including the heteroscedastic
+      The \emph{UWB-based Localization} story — including the heteroscedastic
       EKF — is the subject of \textbf{Emilio Amato's seminar, right after this one}.
 
     \column{0.45\textwidth}
