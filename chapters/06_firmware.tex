@@ -8,38 +8,34 @@
 % ---------------------------------------------------------------------------- %
 \begin{frame}{Why an MCU at all?}
   \begin{columns}[T,onlytextwidth]
-    \column{0.55\textwidth}
-      The Jetson can already run Linux \emph{and} ROS — why glue an
-      STM32F767 to the platform?
+    \column{0.50\textwidth}
+      Jetson already runs Linux and ROS.\\
+      So why add an STM32F767?
 
       \vspace{0.4em}
-      \textbf{Three structural reasons.}
+      \textbf{Because control needs a smaller, stricter world.}
       \begin{enumerate}\setlength\itemsep{2pt}
         \item \alert{Determinism.}\;
-              PWM, encoder reads and PID need \emph{single-digit-microsecond}
-              jitter. Linux user space can not credibly promise that.
+              PWM, encoders and PID need bounded jitter.
         \item \alert{Separation of concerns.}\;
-              Whatever crashes on the Jetson, the wheels stop within one
-              tick of the firmware. The two layers fail independently.
+              If the Jetson crashes, firmware still owns the wheels.
         \item \alert{Safety.}\;
-              The relay that powers the H-bridges is asserted only when the
-              firmware itself reaches a coherent state — not when ROS does.
+              Motor power is enabled only after firmware bring-up.
       \end{enumerate}
 
     \column{0.45\textwidth}
-      \textbf{Hardware budget on the F7.}
+      \textbf{F7 hardware budget.}
       \begin{itemize}\setlength\itemsep{1pt}
-        \item Cortex-M7 \(@\) \(\sim\!216\)~MHz, FPU.
-        \item 4 timers in QEI mode (one per wheel).
-        \item 1 timer with 4 PWM channels (motor driver).
-        \item 1 CAN peripheral, FIFO-based RX ISR.
-        \item I\(^2\)C for the optional MPU60X0 IMU.
+        \item Cortex-M7 \(@\) \(\sim\!216\)~MHz + FPU.
+        \item 4 QEI timers: wheel encoders.
+        \item 4 PWM channels: motor driver.
+        \item CAN RX ISR + TX task.
+        \item I\(^2\)C IMU, optional.
       \end{itemize}
 
       \vspace{0.4em}
-      \footnotesize\textcolor{black!60}{The whole firmware is a few hundred
-      lines on top of HAL \(+\) FreeRTOS. The point isn't ``low-level
-      heroics''; it is \emph{boring predictability}.}
+      \footnotesize\textcolor{black!60}{A few hundred lines on HAL \(+\)
+      FreeRTOS. Not low-level heroics: just \emph{boring predictability}.}
   \end{columns}
 \end{frame}
 
@@ -74,7 +70,7 @@
 
   \vspace{0.6em}
   \begin{itemize}\setlength\itemsep{2pt}
-    \item Driven by FreeRTOS task \texttt{MotorControlTas} with
+    \item Driven by FreeRTOS task \texttt{MotorControlTask} with
           \texttt{vTaskDelayUntil(5\,ms)} — period jitter bounded by the
           kernel tick.
     \item Reference comes from the CAN ISR (saturated to
@@ -93,7 +89,7 @@
     Task                   & Period & Priority           & RM-rank\\
     \midrule
     \texttt{canTxTask}     & \(5\)~ms & \texttt{Realtime7} & 1 (highest)\\
-    \texttt{MotorControlTas}& \(5\)~ms & \texttt{Realtime6} & 2\\
+    \texttt{MotorControlTask}& \(5\)~ms & \texttt{Realtime6} & 2\\
     \texttt{MPUCanTxTask} (opt.) & \(7\)~ms & \texttt{Low}  & 3\\
     \texttt{defaultTask}   & \(1\)~ms idle & \texttt{Normal}&  background\\
     \midrule
@@ -115,6 +111,7 @@
 \end{frame}
 
 % ---------------------------------------------------------------------------- %
+\begin{comment}
 \begin{frame}{Fail handling}
   \begin{columns}[T,onlytextwidth]
     \column{0.50\textwidth}
@@ -147,6 +144,7 @@
       isolate RT control from communication backpressure.}
   \end{columns}
 \end{frame}
+\end{comment}
 
 % ---------------------------------------------------------------------------- %
 \begin{frame}{Take-aways from Atto~6}
