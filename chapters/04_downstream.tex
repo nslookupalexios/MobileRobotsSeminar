@@ -95,8 +95,7 @@
 \begin{frame}[fragile]{Ring 1 — \texttt{diff\_drive\_controller}}
   \begin{columns}[T,onlytextwidth]
     \column{0.45\textwidth}
-      \textbf{What it consumes.} A \texttt{Twist} on \texttt{cmd\_vel}
-      (remapped from Nav2's \texttt{TwistStamped}).
+      \textbf{What it consumes.} A \texttt{TwistStamped} on \texttt{cmd\_vel} topic.
 
       \textbf{What it produces.} A \emph{velocity} command on \emph{four}
       command interfaces — one per wheel joint.
