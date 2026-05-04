@@ -71,8 +71,6 @@ BO_ 11 EncoderRpms: 8 Rover
   SG_ RearLeft   : 16|16@1- (1,0) "rpm"
   SG_ FrontRight : 32|16@1- (1,0) "rpm"
   SG_ RearRight  : 48|16@1- (1,0) "rpm"
-
-CM_ BO_ 11 "Physical RPM = raw * (1/182).";
       \end{lstlisting}
 
       \scriptsize\textcolor{black!60}{One frame, four fields, one scale.
@@ -108,11 +106,10 @@ switch (frame.id) {
   case EncoderRpms::ID:
     last_rx_enc = now();
     decode(frame.data, &enc_entity);
-    enc_msg.front_left  = enc_entity.fl  * (1.0/182.0);
-    enc_msg.rear_left   = enc_entity.rl  * (1.0/182.0);
-    enc_msg.front_right = enc_entity.fr  * (1.0/182.0);
-    enc_msg.rear_right  = enc_entity.rr  * (1.0/182.0);
-    enc_ptr = make_shared<EncoderRpms>(enc_msg);
+    enc_msg.fl = enc_entity.fl * (1.0/182.0);
+    enc_msg.rl = enc_entity.rl * (1.0/182.0);
+    enc_msg.fr = enc_entity.fr * (1.0/182.0);
+    enc_msg.rr = enc_entity.rr * (1.0/182.0);
     break;
 
   case ImuGyroXy::ID:   /* ... */ break;

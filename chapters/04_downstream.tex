@@ -168,7 +168,6 @@ mivia_rover_base_controller:
     \column{0.50\textwidth}
       \begin{lstlisting}[language=XML, basicstyle=\ttfamily\scriptsize,
                          keywordstyle=\color{HLOrange}]
-<ros2_control name="MiviaRoverSystem" type="system">
   <hardware>
     <plugin>
       mivia_rover_platform/MiviaRoverSystem
@@ -177,7 +176,7 @@ mivia_rover_base_controller:
       /mivia_rover/encoder_rpms</param>
     <param name="reference_topic">
       /mivia_rover/reference</param>
-    <param name="feedback_timeout_ms">150</param>
+    <param name="fb_timeout_ms">150</param>
     <param name="rpm_limit_abs">180</param>
     <param name="publish_rate_hz">50</param>
   </hardware>
@@ -205,13 +204,9 @@ mivia_rover_base_controller:
       \textbf{What we override.}
       \begin{itemize}\setlength\itemsep{1pt}
         \item \texttt{on\_init} — read params, validate joints, alloc buffers.
-        \item \texttt{on\_configure} — create a private ROS node and spawn
-              the \emph{comm thread}.
-        \item \texttt{export\_state\_/command\_interfaces} — hand back
-              pointers to \texttt{hw\_positions\_}, \texttt{hw\_velocities\_},
-              \texttt{hw\_commands\_}.
-        \item \texttt{read} / \texttt{write} — the RT clock of the control
-              side (next two slides).
+        \item \texttt{on\_configure} — create a private ROS node and spawn the \emph{comm thread}.
+        \item \texttt{export\_state/command\_interfaces} — hand back pointers to \texttt{hw\_positions\_}, \texttt{hw\_velocities\_}, \texttt{hw\_commands\_}.
+        \item \texttt{read} / \texttt{write} — the RT clock of the control side (next two slides).
       \end{itemize}
 
     \column{0.50\textwidth}
@@ -267,7 +262,8 @@ mivia_rover_base_controller:
 
     \column{0.45\textwidth}
       \begin{lstlisting}[language=C++, basicstyle=\ttfamily\scriptsize]
-// Pseudocode — RT-safe publish to comm thread
+// Pseudocode
+// RT-safe publish to comm thread
 CommandSample c;
 c.stamp_ns = time.nanoseconds();
 for (k = 0..3)
@@ -275,7 +271,7 @@ for (k = 0..3)
       rad_s_to_rpm(hw_commands_[k]),
       rpm_limit_abs);
 
-uint32_t seq      = cmd_seq_.load(relaxed);
+uint32_t seq = cmd_seq_.load(relaxed);
 size_t   next_idx = (seq + 1) & 1;
 cmd_buf_[next_idx] = c;
 cmd_valid_.store(true,  release);
@@ -312,7 +308,7 @@ cmd_seq_.store(seq + 1, release);
 
     \column{0.45\textwidth}
       \begin{lstlisting}[language=C++, basicstyle=\ttfamily\scriptsize]
-// Pseudocode — comm thread, 50 Hz
+// Pseudocode comm thread, 50 Hz
 while (comm_running_) {
   exec_->spin_some();
   Reference out;
