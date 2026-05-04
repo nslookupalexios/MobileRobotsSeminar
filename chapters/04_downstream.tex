@@ -9,11 +9,7 @@
 \begin{frame}{Lighting the path we are about to walk}
   \begin{columns}[T,onlytextwidth]
     \column{0.55\textwidth}
-      \includegraphics[width=\linewidth]{MiviaRoverLogicalView.png}\\[1pt]
-      \scriptsize\textcolor{black!60}{Same picture as in the gap analysis.
-      For the next 15 minutes the only relevant sub-path is}
-      \alert{\textbf{ros2\_control $\to$ CAN $\to$ firmware}}\textcolor{black!60}{
-      \,— the \emph{spine}.}
+      \includegraphics[width=\linewidth]{MiviaRoverLogicalView.png}
 
     \column{0.40\textwidth}
       \textbf{Five rings, walked one at a time.}
@@ -195,18 +191,17 @@ mivia_rover_base_controller:
 % ---------------------------------------------------------------------------- %
 \begin{frame}{Ring 3 — anatomy of a custom \texttt{SystemInterface}}
   \begin{columns}[T,onlytextwidth]
-    \column{0.50\textwidth}
+    \column{0.45\textwidth}
       \textbf{Why custom.}\;
-      No off-the-shelf driver speaks \emph{our} CAN dialect, so we inherit
-      from \texttt{hardware\_interface::SystemInterface} and implement the
-      contract ourselves.
+      Our CAN protocol is custom, so the rover implements
+      \texttt{hardware\_interface::SystemInterface} directly.
 
       \textbf{What we override.}
       \begin{itemize}\setlength\itemsep{1pt}
-        \item \texttt{on\_init} — read params, validate joints, alloc buffers.
-        \item \texttt{on\_configure} — create a private ROS node and spawn the \emph{comm thread}.
-        \item \texttt{export\_state/command\_interfaces} — hand back pointers to \texttt{hw\_positions\_}, \texttt{hw\_velocities\_}, \texttt{hw\_commands\_}.
-        \item \texttt{read} / \texttt{write} — the RT clock of the control side (next two slides).
+        \item \texttt{on\_init} — params, joints, buffers.
+        \item \texttt{on\_configure} — ROS node + \emph{comm thread}.
+        \item \texttt{export\_*} — expose state/command buffers.
+        \item \texttt{read} / \texttt{write} — control-loop boundary.
       \end{itemize}
 
     \column{0.50\textwidth}

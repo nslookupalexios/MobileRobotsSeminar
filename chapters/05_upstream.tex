@@ -81,23 +81,21 @@ BO_ 11 EncoderRpms: 8 Rover
 % ---------------------------------------------------------------------------- %
 \begin{frame}[fragile]{Ring 2 — \texttt{report\_parser}: from bytes to types}
   \begin{columns}[T,onlytextwidth]
-    \column{0.50\textwidth}
-      A \texttt{rclcpp::Node} subscribes to \texttt{input/can\_rx}
-      (\texttt{can\_msgs/Frame}) and \texttt{switch}es on the CAN ID:
+    \column{0.45\textwidth}
+      \texttt{report\_parser} subscribes to \texttt{input/can\_rx}
+      and dispatches by CAN ID:
 
       \begin{itemize}\setlength\itemsep{2pt}
         \item \texttt{0x0B} $\to$ \texttt{EncoderRpms}\\
-              \footnotesize\textcolor{black!60}{decoded fields are scaled by
-              \(1/182\)}
+              {\footnotesize\textcolor{black!60}{scale: \(1/182\)}}
         \item \texttt{0x0C} $\to$ \texttt{ImuGyroXy}
         \item \texttt{0x0D} $\to$ \texttt{ImuAccelXy}
         \item \texttt{0x0E} $\to$ \texttt{ImuZ}
       \end{itemize}
 
       \textbf{Stale-data guard.}\;
-      A timer at \(50\)~Hz only re-publishes a typed message if the last
-      decoded frame is fresh (\texttt{report\_timeout\_ms}). Otherwise it
-      logs a throttled error.
+      At \(50\)~Hz, publish only fresh decoded frames
+      (\texttt{report\_timeout\_ms}); otherwise log a throttled error.
 
     \column{0.50\textwidth}
       \begin{lstlisting}[language=C++, basicstyle=\ttfamily\scriptsize]
@@ -127,26 +125,20 @@ switch (frame.id) {
 \begin{frame}[fragile]{Ring 3 — \texttt{read()}: RT pull \(+\) watchdog}
   \begin{columns}[T,onlytextwidth]
     \column{0.55\textwidth}
-      On every controller tick \texttt{read()} pulls the \emph{latest}
-      encoder sample from a \texttt{realtime\_tools::RealtimeBuffer}, and:
+      Each \texttt{read()} tick pulls the latest encoder sample from the
+      RT buffer:
 
       \begin{enumerate}\setlength\itemsep{2pt}
-        \item Computes \(\Delta t_{\text{age}} = t_{\text{now}} -
-              t_{\text{enc}}\).
-        \item If \(\Delta t_{\text{age}} > \) \texttt{feedback\_timeout}
-              ($\!=\!150$~ms): force \texttt{hw\_velocities\_=0} and
-              increment \texttt{consecutive\_timeouts\_}.
-        \item If \texttt{consecutive\_timeouts\_} reaches the threshold:
-              flip \texttt{fault\_stop\_} and return \texttt{ERROR}.
-        \item Otherwise: convert RPM $\to$ \texttt{rad/s}, fill
-              \texttt{hw\_velocities\_}, integrate
-              \texttt{hw\_positions\_ += w * dt}.
+        \item Check age: \(t_{\text{now}} - t_{\text{enc}}\).
+        \item Late frame \(>150\)~ms: zero velocity, count timeout.
+        \item Too many timeouts: \texttt{fault\_stop\_}, return
+              \texttt{ERROR}.
+        \item Fresh frame: RPM $\to$ rad/s, update velocity + position.
       \end{enumerate}
 
       \vspace{0.2em}
       \alert{Why graceful degradation?}\;
-      A single late frame should not kill the run; a \emph{persistent}
-      silence should. Two thresholds, two reactions.
+      One late frame slows us down; persistent silence stops the run.
 
     \column{0.45\textwidth}
       \begin{lstlisting}[language=C++, basicstyle=\ttfamily\scriptsize]
@@ -204,11 +196,6 @@ for (k=0..3) {
         \item \texttt{enable\_odom\_tf: true}
         \item \texttt{publish\_rate: 50.0}~Hz
       \end{itemize}
-
-      \vspace{0.4em}
-      \footnotesize\textcolor{black!60}{This is the same \texttt{/odom} that
-      Emilio's EKF will fuse with UWB and IMU in the next seminar. From
-      our side: out comes a continuous, locally-consistent estimate.}
   \end{columns}
 \end{frame}
 

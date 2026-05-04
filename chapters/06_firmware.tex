@@ -70,34 +70,7 @@
 % ---------------------------------------------------------------------------- %
 \begin{frame}{Inner loop \(@\) \(200\)~Hz}
   \centering
-  \resizebox{0.90\textwidth}{!}{%
-  \begin{tikzpicture}[
-    node distance=6mm and 8mm,
-    loopbox/.style={ll, minimum width=30mm, minimum height=10mm, align=center},
-    looparr/.style={arrll, line width=0.65pt,
-      -{Latex[length=1.8mm,width=1.4mm]}, shorten <=1mm, shorten >=1mm}
-  ]
-    \node[bus, minimum width=24mm, minimum height=10mm] (ref)
-      {CAN reference\\\scriptsize \(\omega^{\text{ref}}_i\)};
-    \node[loopbox, right=of ref] (err)
-      {error\\\scriptsize \(e_i=\omega^{\text{ref}}_i-\omega^{\text{meas}}_i\)};
-    \node[loopbox, right=of err] (pid)
-      {PID \(\times 4\)\\\scriptsize anti-windup\\\scriptsize \(u\in[-12,+12]\)};
-    \node[loopbox, right=of pid] (pwm)
-      {\texttt{drive\_motor}\\\scriptsize \(u\to\) PWM duty\\\scriptsize stop at \(2.525\)~V};
-
-    \node[ll, minimum width=34mm, minimum height=9mm, below=13mm of pwm] (wheel)
-      {motor + wheel\\\scriptsize physical response};
-    \node[ll, minimum width=42mm, minimum height=9mm, below=13mm of err] (enc)
-      {\texttt{encoder\_update\_speed} \(\times 4\)\\\scriptsize ticks \(\to\) RPM, signed by direction};
-
-    \draw[looparr] (ref.east) -- (err.west);
-    \draw[looparr] (err.east) -- (pid.west);
-    \draw[looparr] (pid.east) -- (pwm.west);
-    \draw[looparr] (pwm.south) -- node[right,msg]{PWM} (wheel.north);
-    \draw[looparr, dashed] (wheel.west) -- node[below,msg]{encoder ticks} (enc.east);
-    \draw[looparr, dashed] (enc.north) -- node[left,msg]{\(\omega^{\text{meas}}_i\)} (err.south);
-  \end{tikzpicture}}
+  \includegraphics[width=0.90\textwidth]{images/06_inner_control_loop.png}
 
   \vspace{0.6em}
   \begin{itemize}\setlength\itemsep{2pt}
@@ -139,9 +112,6 @@
           static msg queue between producers and \texttt{canTxTask}.
   \end{itemize}
 
-  \vspace{0.3em}
-  \footnotesize\textcolor{black!60}{Small enough that Liu-\&-Layland or
-  hyperbolic-bound analysis fits on a napkin.}
 \end{frame}
 
 % ---------------------------------------------------------------------------- %
