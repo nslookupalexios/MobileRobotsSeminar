@@ -43,6 +43,7 @@
   \end{itemize}
 \end{frame}
 
+\begin{comment}
 % ---------------------------------------------------------------------------- %
 \begin{frame}[fragile]{Ring 1 — the firmware emits RPMs}
   \begin{columns}[T,onlytextwidth]
@@ -77,9 +78,10 @@ BO_ 11 EncoderRpms: 8 Rover
       That is the upstream protocol.}
   \end{columns}
 \end{frame}
+\end{comment}
 
 % ---------------------------------------------------------------------------- %
-\begin{frame}[fragile]{Ring 2 — \texttt{report\_parser}: from bytes to types}
+\begin{frame}[fragile]{Ring 1 — \texttt{report\_parser}: from bytes to types}
   \begin{columns}[T,onlytextwidth]
     \column{0.45\textwidth}
       \texttt{report\_parser} subscribes to \texttt{input/can\_rx}
@@ -122,7 +124,7 @@ switch (frame.id) {
 \end{frame}
 
 % ---------------------------------------------------------------------------- %
-\begin{frame}[fragile]{Ring 3 — \texttt{read()}: RT pull \(+\) watchdog}
+\begin{frame}[fragile]{Ring 2 — \texttt{read()}: RT pull \(+\) watchdog}
   \begin{columns}[T,onlytextwidth]
     \column{0.55\textwidth}
       Each \texttt{read()} tick pulls the latest encoder sample from the
@@ -169,7 +171,7 @@ for (k=0..3) {
 \end{frame}
 
 % ---------------------------------------------------------------------------- %
-\begin{frame}{Ring 4 — \texttt{diff\_drive\_controller} produces \texttt{/odom}}
+\begin{frame}{Ring 3 — \texttt{diff\_drive\_controller} produces \texttt{/odom}}
   \begin{columns}[T,onlytextwidth]
     \column{0.50\textwidth}
       Once the four wheel velocities are in the state interfaces, the
@@ -282,7 +284,7 @@ for (k=0..3) {
 \begin{frame}{Take-aways from Atto~5}
   \begin{enumerate}\setlength\itemsep{2pt}
     \item \textbf{The loop is closed.} Encoder ticks come back as
-          \texttt{/odom} through the same five rings, in reverse.
+          \texttt{/odom} through the same chain, walked in reverse.
     \item \textbf{The watchdog is the only fancy bit.} Two thresholds,
           two reactions: \emph{soft} fault zeroes velocities, \emph{hard}
           fault returns \texttt{ERROR} and engages \texttt{fault\_stop\_}.
